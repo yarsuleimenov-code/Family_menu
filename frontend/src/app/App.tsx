@@ -20,9 +20,14 @@ export function App() {
         </div>
       </header>
       <main className="app-main">
-        {loading ? <LoadingState /> : null}
-        {error ? <ErrorPanel message={error} details="Проверьте endpoint Apps Script или переключитесь на mock-режим в .env." /> : null}
-        <Outlet />
+        {loading ? (
+          <LoadingState />
+        ) : (
+          <>
+            {error ? <ErrorPanel message={error} details="Проверьте endpoint Apps Script или переключитесь на mock-режим в .env." /> : null}
+            <Outlet />
+          </>
+        )}
       </main>
       <BottomNav />
     </div>
