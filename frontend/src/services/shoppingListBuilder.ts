@@ -1,0 +1,94 @@
+import type { BaseProduct } from '../types/product';
+import type { SelectedDinner } from '../types/plan';
+import type { ShoppingItem, ShoppingItemStatus } from '../types/shopping';
+import type { Dish } from '../types/dish';
+import { normalizeKey } from '../utils/normalize';
+
+const DEFAULT_STATUS: ShoppingItemStatus = 'to_buy';
+
+export function buildShoppingList(
+  selectedDinners: SelectedDinner[],
+  dishes: Dish[],
+  baseProducts: BaseProduct[],
+  includeBaseProducts: boolean,
+  statusByKey: Record<string, ShoppingItemStatus> = {},
+): ShoppingItem[] {
+  const dishById = new Map(dishes.map((dish) => [dish.dishId, dish]));
+  const merged = new Map<string, ShoppingItem>();
+
+  selectedDinners.forEach((selection) => {
+    const dish = dishById.get(selection.dishId);
+    if (!dish) return;
+    dish.ingredients.forEach((ingredient) => {
+      addItem(merged, {
+        key: normalizeKey(`${ingredient.productName}:${ingredient.unit}`),
+        productId: ingredient.productId,
+        productName: ingredient.productName,
+        category: ingredient.category || 'прочее',
+        quantityText: formatQuantity(ingredient.quantity, ingredient.unit),
+        unit: ingredient.unit,
+        usedForDishes: [dish.dishName],
+        replacement: ingredient.replacement,
+        comment: ingredient.comment,
+        status: DEFAULT_STATUS,
+      });
+    });
+  });
+
+  if (includeBaseProducts) {
+    baseProducts.filter((product) => product.active && product.includeByDefault).forEach((product) => {
+      addItem(merged, {
+        key: normalizeKey(`${product.productName}:${product.unit}`),
+        productId: product.productId,
+        productName: product.productName,
+        category: product.category || 'прочее',
+        quantityText: formatQuantity(product.defaultQuantity, product.unit),
+        unit: product.unit,
+        usedForDishes: ['Базовые покупки'],
+        comment: product.storeNote,
+        pricePerUnit: product.pricePerUnit,
+        estimatedPrice: product.estimatedPackagePrice || estimatePrice(product.defaultQuantity, product.pricePerUnit),
+        status: DEFAULT_STATUS,
+      });
+    });
+  }
+
+  return Array.from(merged.values()).map((item) => ({
+    ...item,
+    status: statusByKey[item.key] || item.status,
+  })).sort((a, b) => a.category.localeCompare(b.category, 'ru') || a.productName.localeCompare(b.productName, 'ru'));
+}
+
+function addItem(merged: Map<string, ShoppingItem>, next: ShoppingItem): void {
+  const existing = merged.get(next.key);
+  if (!existing) {
+    merged.set(next.key, next);
+    return;
+  }
+  existing.quantityText = mergeQuantity(existing.quantityText, next.quantityText);
+  existing.usedForDishes = Array.from(new Set([...existing.usedForDishes, ...next.usedForDishes]));
+  existing.replacement ||= next.replacement;
+  existing.comment ||= next.comment;
+  existing.pricePerUnit ||= next.pricePerUnit;
+  existing.estimatedPrice = (existing.estimatedPrice || 0) + (next.estimatedPrice || 0) || undefined;
+}
+
+function formatQuantity(quantity: number | string, unit?: string): string {
+  return [quantity, unit].filter(Boolean).join(' ');
+}
+
+function mergeQuantity(current: string, next: string): string {
+  if (current === next) return current;
+  const currentMatch = current.match(/^([\d.]+)\s+(.+)$/);
+  const nextMatch = next.match(/^([\d.]+)\s+(.+)$/);
+  if (currentMatch && nextMatch && currentMatch[2] === nextMatch[2]) {
+    return `${Number(currentMatch[1]) + Number(nextMatch[1])} ${currentMatch[2]}`;
+  }
+  return `${current} + ${next}`;
+}
+
+function estimatePrice(quantity: number | string, pricePerUnit?: number): number | undefined {
+  const numeric = Number(quantity);
+  if (!Number.isFinite(numeric) || !pricePerUnit) return undefined;
+  return numeric * pricePerUnit;
+}
