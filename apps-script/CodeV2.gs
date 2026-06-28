@@ -352,11 +352,9 @@ function buildShoppingList(selectedDishes, includeBaseProducts) {
 
 function randomDish(filters) {
   var settings = getSettings();
-  var forbidden = settings.forbiddenProducts.map(norm_);
   var candidates = getDishes().filter(function (dish) {
-    var text = norm_(dish.dishName + ' ' + dish.tags.join(' ') + ' ' + dish.ingredients.map(function (i) { return i.productName; }).join(' '));
     if (!dish.active) return false;
-    if (forbidden.some(function (word) { return word && text.indexOf(word) >= 0; })) return false;
+    if (hasForbidden_(dish, settings.forbiddenProducts)) return false;
     if (filters.quick && Number(dish.cookingTimeMin || 999) > 45) return false;
     if (filters.budget && dish.budgetLevel !== 'low') return false;
     if (filters.leftovers && !dish.leftovers) return false;
@@ -700,8 +698,19 @@ function addShoppingItem_(merged, item) {
 }
 
 function hasForbidden_(dish, forbiddenProducts) {
-  var text = norm_(dish.dishName + ' ' + dish.tags.join(' ') + ' ' + dish.ingredients.map(function (i) { return i.productName; }).join(' '));
-  return forbiddenProducts.map(norm_).some(function (word) { return word && text.indexOf(word) >= 0; });
+  var text = productSearchText_(dish.dishName + ' ' + dish.tags.join(' ') + ' ' + dish.ingredients.map(function (i) { return i.productName; }).join(' '));
+  return forbiddenProducts.some(function (product) {
+    var token = productSearchToken_(product);
+    return token && text.indexOf(' ' + token + ' ') >= 0;
+  });
+}
+
+function productSearchText_(value) {
+  return ' ' + norm_(value).replace(/[^a-zа-я0-9]+/g, ' ') + ' ';
+}
+
+function productSearchToken_(value) {
+  return norm_(value).replace(/[^a-zа-я0-9]+/g, ' ').trim();
 }
 
 function findDishIdByName_(name) {

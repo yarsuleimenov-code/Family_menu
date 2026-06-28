@@ -9,13 +9,23 @@ export interface RandomDishResult {
 }
 
 export function hasForbiddenProducts(dish: Dish, forbiddenProducts: string[]): boolean {
-  const forbidden = forbiddenProducts.map(normalizeKey);
-  const text = normalizeKey([
+  const text = productSearchText([
     dish.dishName,
     dish.tags.join(' '),
     ...dish.ingredients.map((ingredient) => ingredient.productName),
   ].join(' '));
-  return forbidden.some((item) => item && text.includes(item));
+  return forbiddenProducts.some((item) => {
+    const token = productSearchToken(item);
+    return token && text.includes(` ${token} `);
+  });
+}
+
+function productSearchText(value: unknown): string {
+  return ` ${normalizeKey(value).replace(/[^a-zа-я0-9]+/g, ' ')} `;
+}
+
+function productSearchToken(value: unknown): string {
+  return normalizeKey(value).replace(/[^a-zа-я0-9]+/g, ' ').trim();
 }
 
 export function filterDishes(
