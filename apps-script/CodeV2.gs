@@ -419,7 +419,8 @@ function cleanupSeedRows(payload) {
     return startsQa_(cell_(row, 'id')) ||
       startsQa_(cell_(row, 'dish_id')) ||
       cell_(row, 'day_label') === 'qa' ||
-      hasQaText_(cell_(row, 'note'));
+      hasQaText_(cell_(row, 'note')) ||
+      isLegacyProductionSeedSelection_(row);
   }, dryRun);
 
   summary.duplicateSelectedDinners = dedupeRowsByKey_('selected_dinners', 'id', dryRun);
@@ -748,6 +749,12 @@ function startsQa_(value) {
 
 function hasQaText_(value) {
   return /QA smoke test/i.test(trim_(value));
+}
+
+function isLegacyProductionSeedSelection_(row) {
+  return cell_(row, 'source') === 'seed' &&
+    cell_(row, 'note') === 'production seed' &&
+    /^\d{4}-\d{2}-\d{2}-D-/.test(cell_(row, 'id'));
 }
 
 function toBool_(value, defaultValue) {
