@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "typecheck": "tsc",
     "build": "tsc && vite build",
-    "build:pages": "tsc && vite build --base=/Family_menu/ --outDir ../docs --emptyOutDir=false",
+    "build:pages": "tsc && vite build --base=/Family_menu/ --outDir ../docs --emptyOutDir=false && node ../scripts/sync_pages_404.mjs",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
