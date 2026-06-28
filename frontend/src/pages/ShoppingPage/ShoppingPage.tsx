@@ -18,6 +18,7 @@ export function ShoppingPage() {
   const [hideBought, setHideBought] = useState(false);
   const [statusByKey, setStatusByKey] = useState<Record<string, ShoppingItemStatus>>(() => readStorage(STATUS_KEY, {}));
   const [message, setMessage] = useState('');
+  const [generatedAt, setGeneratedAt] = useState<string>();
 
   const selectedDinners = useMemo(() => {
     const dates = getDateRange(dateFrom, dateTo);
@@ -67,6 +68,11 @@ export function ShoppingPage() {
     writeStorage(STATUS_KEY, next);
   };
 
+  const generateList = () => {
+    setGeneratedAt(new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
+    setMessage(shoppingItems.length ? `Список сформирован: ${shoppingItems.length} поз.` : 'Нет выбранных блюд в диапазоне');
+  };
+
   const grouped = groupByCategory(visibleItems);
 
   return (
@@ -88,9 +94,11 @@ export function ShoppingPage() {
 
       {isOverBudget(total, data.settings.weeklyBudget) ? <div className="budget-warning">Ориентировочная сумма выше недельного бюджета.</div> : null}
       {withoutPrice.length ? <div className="inline-note">Без цены: {withoutPrice.map((item) => item.productName).join(', ')}</div> : null}
+      {generatedAt ? <div className="inline-note">Последнее формирование: {generatedAt}</div> : null}
       {message ? <div className="inline-note">{message}</div> : null}
 
       <div className="toolbar">
+        <button className="primary" type="button" onClick={generateList}>Сформировать список</button>
         <button type="button" onClick={() => void copyList()}><Copy size={18} /> Скопировать</button>
         <button type="button" onClick={() => window.print()}><Printer size={18} /> Печать</button>
         <button type="button" onClick={() => void saveSession()}><Save size={18} /> Сохранить</button>

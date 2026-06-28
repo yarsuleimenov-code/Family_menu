@@ -27,6 +27,14 @@
 - `services/shoppingListBuilder.ts` содержит бизнес-логику покупок.
 - `services/randomDish.ts` содержит подбор блюд и ограничения.
 
+## Stabilization decisions
+
+- GitHub Pages использует `docs/index.html` и `docs/404.html`; оба файла должны ссылаться на один актуальный bundle. Скрипт `scripts/sync_pages_404.mjs` синхронизирует fallback после `build:pages`.
+- Во время initial loading основной роут не рендерится, чтобы пользователь не видел mock-данные как реальные live данные.
+- `LoadingState` показывает дополнительную подсказку после 8 секунд, потому что Apps Script cold start может быть долгим.
+- `/shopping` строит список автоматически при изменении диапазона и переключателя базовых продуктов, но также имеет явную кнопку `Сформировать список` для пользовательского подтверждения сценария.
+- QA/seed записи чистятся через API action `cleanupSeedRows`; скрипты smoke не должны оставлять мусор в рабочем Google Sheet.
+
 ## Risks
 
 - Google Apps Script квоты могут ограничить частые записи.
