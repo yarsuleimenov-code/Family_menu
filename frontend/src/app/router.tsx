@@ -7,18 +7,21 @@ import { BaseProductsPage } from '../pages/BaseProductsPage/BaseProductsPage';
 import { HistoryPage } from '../pages/HistoryPage/HistoryPage';
 import { SettingsPage } from '../pages/SettingsPage/SettingsPage';
 
-export const router = createBrowserRouter([
-  {
-    path: '/',
-    element: <App />,
-    children: [
-      { index: true, element: <Navigate to="/plan" replace /> },
-      { path: 'plan', element: <PlanPage /> },
-      { path: 'shopping', element: <ShoppingPage /> },
-      { path: 'dishes', element: <DishesPage /> },
-      { path: 'base-products', element: <BaseProductsPage /> },
-      { path: 'history', element: <HistoryPage /> },
-      { path: 'settings', element: <SettingsPage /> },
-    ],
-  },
-]);
+export const router = createBrowserRouter(
+  [
+    {
+      path: '/',
+      element: <App />,
+      children: [
+        { index: true, element: <Navigate to="/plan" replace /> },
+        { path: 'plan', element: <PlanPage /> },
+        { path: 'shopping', element: <ShoppingPage /> },
+        { path: 'dishes', element: <DishesPage /> },
+        { path: 'base-products', element: <BaseProductsPage /> },
+        { path: 'history', element: <HistoryPage /> },
+        { path: 'settings', element: <SettingsPage /> },
+      ],
+    },
+  ],
+  { basename: import.meta.env.BASE_URL },
+);

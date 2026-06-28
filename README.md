@@ -21,6 +21,24 @@ npm run dev
 
 Локальный адрес Vite будет показан в терминале, обычно `http://127.0.0.1:5173/`.
 
+## GitHub Pages
+
+Для режима GitHub Pages `Deploy from a branch` нужно публиковать собранный Vite output, а не корень репозитория. Иначе GitHub Pages показывает `README.md`.
+
+Сборка для Pages:
+
+```bash
+cd frontend
+npm run build:pages
+```
+
+В настройках GitHub Pages выберите:
+
+- Branch: `feature/react-family-menu`
+- Folder: `/docs`
+
+`docs/index.html` является стартовой страницей приложения. `docs/404.html` дублирует `index.html`, чтобы прямые ссылки React Router вроде `/Family_menu/plan` открывались корректно.
+
 ## Настройка `.env`
 
 Скопируйте `frontend/.env.example` в `frontend/.env`.
