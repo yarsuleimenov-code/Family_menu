@@ -8,7 +8,7 @@ if (!endpoint) {
 
 const runId = `QA-${Date.now()}`;
 const now = new Date().toISOString();
-const qaDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+const qaDate = '2099-12-31';
 
 async function call(action, payload = {}) {
   const response = await fetch(endpoint, {

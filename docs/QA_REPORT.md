@@ -39,6 +39,7 @@ Google Sheet заполнен рабочими данными:
 | Базовые продукты добавляются только при включённом переключателе | Passed | Base-only товары появляются только при `includeBaseProducts=true`. |
 | `randomDish` исключает запрещённые продукты без false positive по `минут` / `нут` | Passed | `validateData.warnings=[]`, quick random возвращает валидное блюдо. |
 | CRUD блюд и базовых продуктов | Passed | `scripts/live_crud_smoke.mjs`: create/update/deactivate для блюд и базовых продуктов, затем `cleanupSeedRows`. |
+| Smoke cleanup не повреждает production calendar | Passed | `live_api_smoke` использует безопасную QA-дату `2099-12-31`; после cleanup dataset вернулся к 20/24/14/7/0. |
 
 ## Frontend Mobile QA
 
@@ -87,12 +88,29 @@ npm run build:pages
 
 ## Live CRUD Smoke
 
+Live API smoke:
+
+```json
+{
+  "ok": true,
+  "runId": "QA-1782706020997",
+  "qaDate": "2099-12-31",
+  "results": [
+    "read:dishes/calendar_plan/base_products",
+    "write:selected_dinners",
+    "shopping:selected-only/no-alternatives/base-off",
+    "shopping:base-on",
+    "write:shopping_sessions"
+  ]
+}
+```
+
 Результат:
 
 ```json
 {
   "ok": true,
-  "runId": "QA-CRUD-1782672265173",
+  "runId": "QA-CRUD-1782706195874",
   "results": [
     "createDish",
     "updateDish",

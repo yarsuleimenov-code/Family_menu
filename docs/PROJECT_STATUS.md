@@ -60,6 +60,8 @@ node scripts/live_api_smoke.mjs
 node scripts/live_crud_smoke.mjs
 ```
 
+`live_api_smoke` использует QA-дату `2099-12-31`, чтобы не перезаписывать production calendar rows.
+
 После smoke-тестов при необходимости:
 
 ```powershell
