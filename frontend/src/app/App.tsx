@@ -5,7 +5,7 @@ import { LoadingState } from '../components/LoadingState/LoadingState';
 import { useAppState } from './AppState';
 
 export function App() {
-  const { loading, error, data } = useAppState();
+  const { loading, error, data, syncStatus } = useAppState();
 
   return (
     <div className="app-shell">
@@ -15,6 +15,12 @@ export function App() {
           <span>Планировщик семейных ужинов</span>
         </div>
         <div className="topbar__meta">
+          <span
+            className={`sync-status sync-status--${syncStatus.status}`}
+            title={syncStatus.detail}
+          >
+            {syncStatus.message}
+          </span>
           <span>{data.settings.peopleCount} чел.</span>
           <span>{new Intl.NumberFormat('ru-KZ').format(data.settings.weeklyBudget)} ₸/нед.</span>
         </div>

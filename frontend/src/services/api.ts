@@ -10,6 +10,7 @@ import { googleSheetsApi } from './googleSheetsApi';
 
 const APP_DATA_KEY = 'app-data';
 const dataSource = import.meta.env.VITE_DATA_SOURCE as string | undefined;
+export const isGoogleSheetsDataSource = dataSource === 'googleSheets';
 
 export interface DataApi {
   getAppData(): Promise<AppData>;
@@ -101,4 +102,4 @@ const localApi: DataApi = {
   },
 };
 
-export const api: DataApi = dataSource === 'googleSheets' ? googleSheetsApi : localApi;
+export const api: DataApi = isGoogleSheetsDataSource ? googleSheetsApi : localApi;
