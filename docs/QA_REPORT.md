@@ -21,7 +21,7 @@ Google Sheet заполнен рабочими данными:
 - `dishes`: 20
 - `base_products`: 24
 - `calendar_plan`: 14
-- `selected_dinners`: 8
+- `selected_dinners`: 9
 - `shopping_sessions`: 0 после очистки QA/seed мусора
 
 `validateData.warnings`: `[]`.
@@ -33,7 +33,7 @@ Google Sheet заполнен рабочими данными:
 | Проверка | Статус | Факт |
 |---|---|---|
 | `getAppData` читает `dishes`, `calendar_plan`, `base_products` | Passed | Live API возвращает production-like dataset. |
-| `selected_dinners` очищен от старых битых seed rows | Passed | Осталось 7 корректных строк `PROD-*`. |
+| `selected_dinners` очищен от старых битых seed rows | Passed | После v7 smoke cleanup осталось 9 рабочих строк selected dinners. |
 | `buildShoppingList` строит список только по выбранным блюдам | Passed | Для `D-001` список содержит ингредиенты выбранного блюда. |
 | Невыбранные альтернативы не попадают в покупки | Passed | Уникальные ингредиенты option B / quick отсутствуют при выключенных базовых продуктах. |
 | Базовые продукты добавляются только при включённом переключателе | Passed | Base-only товары появляются только при `includeBaseProducts=true`. |
@@ -93,7 +93,7 @@ Live API smoke:
 ```json
 {
   "ok": true,
-    "runId": "QA-1782710143000",
+  "runId": "QA-1782732107223",
   "qaDate": "2099-12-31",
   "results": [
     "read:dishes/calendar_plan/base_products",
@@ -106,7 +106,7 @@ Live API smoke:
 ```
 
 После smoke-test выполнен `cleanup_family_menu_live.mjs` с `CLEANUP_DRY_RUN=false`.
-Удалено 8 QA rows; финальные счётчики после cleanup: `dishes=20`, `baseProducts=24`, `calendarPlan=14`, `selectedDinners=8`, `shoppingSessions=0`.
+Удалено 8 QA rows; финальные счётчики после cleanup на Apps Script deployment v7: `dishes=20`, `baseProducts=24`, `calendarPlan=14`, `selectedDinners=9`, `shoppingSessions=0`.
 
 Результат:
 
@@ -155,11 +155,12 @@ QA observations:
 
 - Первый запуск без cache ожидаемо ждёт live Apps Script API.
 - Повторный запуск после успешного live refresh должен показывать интерфейс сразу из cache.
-- Backend CacheService вступит в силу после деплоя обновлённого `apps-script/CodeV2.gs` в Apps Script Web App.
+- Backend CacheService проверен после деплоя `apps-script/CodeV2.gs` в Apps Script Web App v7.
 - Local production preview QA: первый live refresh занял `19886ms`; после reload интерфейс `/plan` был виден через `~1270ms` без loading screen.
 - Console подтвердил cache-first path: `[FamilyMenu] cached render data read in 0ms`.
 - Background refresh после cached render завершился за `17808ms` и обновил статус на `Обновлено HH:mm`.
 - `/shopping`: representative checkbox `В корзине` сохранился после reload; отдельный shopping status key не перетёрся live refresh.
+- Backend `getAppData` timing после v7 deployment: первый read `2461ms`, повторный cached read `1430ms`, counts совпали `20/24/14/9/0`.
 
 ## Known Limitations
 
