@@ -21,6 +21,26 @@ npm run dev
 
 Локальный адрес Vite будет показан в терминале, обычно `http://127.0.0.1:5173/`.
 
+## GitHub Pages
+
+Для режима GitHub Pages `Deploy from a branch` нужно публиковать собранный Vite output, а не корень репозитория. Иначе GitHub Pages показывает `README.md`.
+
+Сборка для Pages:
+
+```bash
+cd frontend
+npm run build:pages
+```
+
+В настройках GitHub Pages выберите:
+
+- Branch: `feature/react-family-menu`
+- Folder: `/docs`
+
+`docs/index.html` является стартовой страницей приложения. `docs/404.html` дублирует `index.html`, чтобы прямые ссылки React Router вроде `/Family_menu/plan` открывались корректно.
+
+`npm run build:pages` также запускает `scripts/sync_pages_404.mjs`, чтобы `404.html` всегда ссылался на актуальный JS bundle.
+
 ## Настройка `.env`
 
 Скопируйте `frontend/.env.example` в `frontend/.env`.
@@ -135,6 +155,28 @@ node scripts/live_api_smoke.mjs
 ```
 
 Скрипт создаёт QA-записи с префиксом `QA-...` в реальной таблице и проверяет чтение `dishes`, `calendar_plan`, `base_products`, запись `selected_dinners`, запись `shopping_sessions`, а также правила shopping list: только выбранное блюдо, без невыбранной альтернативы, base products только при включённом флаге.
+
+Live CRUD smoke-test:
+
+```bash
+$env:APPS_SCRIPT_ENDPOINT="https://script.google.com/macros/s/.../exec"
+$env:API_TOKEN=""
+node scripts/live_crud_smoke.mjs
+```
+
+Скрипт проверяет `create/update/deactivate` для блюд и базовых продуктов, затем вызывает `cleanupSeedRows`, чтобы удалить QA-записи.
+
+Cleanup QA/seed rows:
+
+```bash
+$env:CLEANUP_DRY_RUN="true"
+node scripts/cleanup_family_menu_live.mjs
+
+$env:CLEANUP_DRY_RUN="false"
+node scripts/cleanup_family_menu_live.mjs
+```
+
+Актуальный статус проекта фиксируется в `docs/PROJECT_STATUS.md`, подробный QA - в `docs/QA_REPORT.md`.
 
 Ручные smoke-тесты:
 

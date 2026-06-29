@@ -6,29 +6,95 @@ Endpoint: `https://script.google.com/macros/s/AKfycbwxBrNP6JNIeafbm7iw0uAFyAC9RE
 
 ## Вывод
 
-Live цепочка проверена:
+Статус: Passed for v1 review.
+
+Проверена цепочка:
 
 `React frontend -> Apps Script Web App -> Google Sheets -> чтение и запись данных`
 
-Критичный критерий приёмки выполнен. Merge в `main` не выполнялся.
+`main` не изменялся. Рабочая ветка: `feature/react-family-menu`.
 
-## Live Smoke-Test
+## Production-like Dataset
 
-Команда:
+Google Sheet заполнен рабочими данными:
 
-```powershell
-$env:APPS_SCRIPT_ENDPOINT="https://script.google.com/macros/s/AKfycbwxBrNP6JNIeafbm7iw0uAFyAC9REAzAHRAcYyrxab43tsfXnKh-0u5AHPMtwv97pps/exec"
-$env:API_TOKEN=""
-node scripts/live_api_smoke.mjs
+- `dishes`: 20
+- `base_products`: 24
+- `calendar_plan`: 14
+- `selected_dinners`: 7
+- `shopping_sessions`: 0 после очистки QA/seed мусора
+
+`validateData.warnings`: `[]`.
+
+## Live API Checks
+
+Проверено через Apps Script deployment v6:
+
+| Проверка | Статус | Факт |
+|---|---|---|
+| `getAppData` читает `dishes`, `calendar_plan`, `base_products` | Passed | Live API возвращает production-like dataset. |
+| `selected_dinners` очищен от старых битых seed rows | Passed | Осталось 7 корректных строк `PROD-*`. |
+| `buildShoppingList` строит список только по выбранным блюдам | Passed | Для `D-001` список содержит ингредиенты выбранного блюда. |
+| Невыбранные альтернативы не попадают в покупки | Passed | Уникальные ингредиенты option B / quick отсутствуют при выключенных базовых продуктах. |
+| Базовые продукты добавляются только при включённом переключателе | Passed | Base-only товары появляются только при `includeBaseProducts=true`. |
+| `randomDish` исключает запрещённые продукты без false positive по `минут` / `нут` | Passed | `validateData.warnings=[]`, quick random возвращает валидное блюдо. |
+| CRUD блюд и базовых продуктов | Passed | `scripts/live_crud_smoke.mjs`: create/update/deactivate для блюд и базовых продуктов, затем `cleanupSeedRows`. |
+| Smoke cleanup не повреждает production calendar | Passed | `live_api_smoke` использует безопасную QA-дату `2099-12-31`; после cleanup dataset вернулся к 20/24/14/7/0. |
+
+## Frontend Mobile QA
+
+Среда:
+
+- URL: `https://yarsuleimenov-code.github.io/Family_menu/`
+- Viewport: `390x844`
+- Browser plugin: in-app Browser
+- Data source: Google Sheets через Apps Script
+
+| Экран | Статус | Факт |
+|---|---|---|
+| `/plan` | Passed | Direct deep link монтирует React, после загрузки видны live данные. |
+| `/shopping` | Passed | Список строится, чекбоксы товаров по умолчанию пустые после `Очистить`, `В корзине` сохраняется после reload. |
+| `/dishes` | Passed | Список live блюд отображается, форма добавления открывается и отменяется без горизонтального скролла. |
+| `/base-products` | Passed | Live продукты отображаются, форма добавления открывается и отменяется без горизонтального скролла. |
+| `/history` | Passed | Показывает 7 последних выбранных ужинов. |
+| `/settings` | Passed | Endpoint не раскрывается как значение, отображается placeholder `настроен через .env`. |
+
+Console errors/warnings: none during mobile QA.
+
+## P0 Fixes Closed
+
+- GitHub Pages deep links: fixed. `docs/404.html` синхронизируется с `docs/index.html`.
+- Loading state: fixed. Во время initial load больше не показываются mock-карточки под индикатором загрузки.
+- Long Apps Script response: fixed. После 8 секунд показывается понятная подсказка.
+- Shopping explicit action: fixed. На `/shopping` добавлена кнопка `Сформировать список`; список по-прежнему обновляется автоматически при изменении диапазона и переключателя базовых продуктов.
+- Stale Pages bundles: cleaned.
+
+## Build Checks
+
+- `tsc`: Passed
+- `vite build`: Passed
+- `build:pages`: Passed
+
+Команды:
+
+```bash
+cd frontend
+npm run typecheck
+npm run build
+npm run build:pages
 ```
 
-Результат:
+В текущей Codex-среде `npm` может отсутствовать в `PATH`; проверки выполнялись через bundled Node и локальные `node_modules/.bin`.
+
+## Live CRUD Smoke
+
+Live API smoke:
 
 ```json
 {
   "ok": true,
-  "runId": "QA-1782649265008",
-  "qaDate": "2026-06-29",
+  "runId": "QA-1782706020997",
+  "qaDate": "2099-12-31",
   "results": [
     "read:dishes/calendar_plan/base_products",
     "write:selected_dinners",
@@ -39,69 +105,40 @@ node scripts/live_api_smoke.mjs
 }
 ```
 
-## Проверка по пунктам
+Результат:
 
-| # | Проверка | Статус | Факт |
-|---|---|---|---|
-| 1 | Frontend читает `dishes`, `calendar_plan`, `base_products` из Google Sheets | Passed | `/dishes`, `/base-products`, `/plan` загружают live QA-данные через Apps Script. |
-| 2 | Выбранные ужины записываются в `selected_dinners` | Passed | `saveSelectedDinner` проверен smoke-test и отображается в `/history`. |
-| 3 | Shopping sessions записываются в `shopping_sessions` | Passed | `saveShoppingSession` проверен smoke-test и отображается в `/history`. |
-| 4 | Список покупок строится только по выбранным блюдам | Passed | Smoke-test проверил наличие ингредиента выбранного блюда. |
-| 5 | Невыбранные альтернативы не попадают в покупки | Passed | Smoke-test проверил отсутствие ингредиента option B в списке. |
-| 6 | Базовые продукты добавляются только при включённом переключателе | Passed | Smoke-test проверил base off/base on. |
-| 7 | Чекбоксы покупок по умолчанию пустые | Passed | Проверено в browser на live frontend после `Очистить` и reload. |
-| 8 | Отметки `В корзине` сохраняются после обновления страницы | Passed | Проверено в browser: первый shopping item остался checked после reload. |
-| 9 | Приложение проверено на мобильной ширине | Passed | Browser viewport `390x844`, live screenshots сохранены. |
-| 10 | README содержит запуск, env и настройку Apps Script | Passed | README содержит запуск, `.env`, Apps Script deployment и live smoke-test. |
+```json
+{
+  "ok": true,
+  "runId": "QA-CRUD-1782706195874",
+  "results": [
+    "createDish",
+    "updateDish",
+    "deactivateDish",
+    "createBaseProduct",
+    "updateBaseProduct",
+    "deactivateBaseProduct",
+    "cleanupSeedRows"
+  ]
+}
+```
 
-## Frontend Live QA
+## Known Limitations
 
-- `/plan`: live data загружается; calendar plan отображается на дату `2026-06-29`; выбор блюда работает. Random dinner вернул корректное empty state `Нет подходящих активных блюд`, потому что все QA-блюда уже были выбраны в текущей неделе.
-- `/shopping`: список строится по выбранному блюду; base product появляется при включённом флаге; чекбоксы работают и сохраняются после reload.
-- `/dishes`: live блюда загружаются. CRUD endpoint-ы `createDish`, `updateDish`, `deactivateDish` проверены напрямую через Apps Script.
-- `/base-products`: live продукты загружаются. CRUD endpoint-ы `createBaseProduct`, `updateBaseProduct`, `deactivateBaseProduct` проверены напрямую через Apps Script.
-- `/history`: selected dinners и shopping sessions отображаются.
-- `/settings`: endpoint из `.env` не раскрывается в UI; поле показывает placeholder `настроен через .env`.
-
-## Backend / Sheet Structure
-
-`setupSheets` выполнен через smoke-test. Backend работает с вкладками:
-
-- `dishes`
-- `dish_ingredients`
-- `calendar_plan`
-- `base_products`
-- `shopping_sessions`
-- `selected_dinners`
-- `settings`
-
-Локальный backend-файл `apps-script/CodeV2.gs` содержит API v2 функции: `doGet`, `doPost`, `getAppData`, read/write CRUD, `buildShoppingList`, `randomDish`, `validateData`, `setupSheets`, `migrateLegacyData`.
-
-## Build Checks
-
-- TypeScript: passed через `tsc`.
-- Production build: passed через `vite build`.
-- `npm` в текущей среде не доступен в PATH, поэтому проверки выполнены bundled Node-командами. В `frontend/package.json` добавлен `npm run typecheck`.
-
-## Скриншоты
-
-- `screenshots/live/plan-live.png`
-- `screenshots/live/shopping-live.png`
-- `screenshots/live/dishes-live.png`
-- `screenshots/live/base-products-live.png`
-- `screenshots/live/history-live.png`
-- `screenshots/live/settings-live.png`
-
-## Обнаруженные проблемы и исправления
-
-- Apps Script/Google Sheets возвращает date cells не всегда как ISO `YYYY-MM-DD`. Исправлено defensively во frontend через нормализацию дат; smoke-test тоже нормализует даты. В `apps-script/CodeV2.gs` также добавлена нормализация `Date` в `trim_()`.
-- `/history` падал на `Invalid time value` до frontend-нормализации дат. Исправлено.
-- Settings UI показывал env endpoint в input value. Исправлено: endpoint не подставляется, показывается placeholder.
-
-## Известные ограничения
-
-- Smoke-test оставляет QA-записи в Google Sheet, потому что delete API в v1 не реализован.
-- Random dinner на маленьком QA dataset может вернуть empty state после выбора всех активных QA-блюд в текущей неделе.
+- Apps Script cold start может занимать 20-45 секунд.
 - Frontend token не является секретом.
-- Multi-user конфликты не решаются в v1.
-- Legacy migration не запускалась в этом live QA, потому что проверялась v2-структура.
+- Сложные multi-user конфликты не решаются в v1.
+- Цены ориентировочные, без нормализации упаковок.
+- Legacy migration есть в backend, но текущий QA фокусировался на v2 production-like dataset.
+
+## Next Recommended Step
+
+Запустить:
+
+```powershell
+$env:APPS_SCRIPT_ENDPOINT="https://script.google.com/macros/s/.../exec"
+$env:API_TOKEN=""
+node scripts/live_crud_smoke.mjs
+```
+
+Smoke пройден на текущем endpoint. Перед merge рекомендуется повторить команды после последнего backend/frontend изменения.

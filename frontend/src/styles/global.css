@@ -460,6 +460,15 @@ textarea {
   text-align: center;
 }
 
+.loading-state {
+  display: grid;
+  gap: 8px;
+}
+
+.loading-state strong {
+  color: var(--text);
+}
+
 .bottom-nav {
   position: fixed;
   left: 0;

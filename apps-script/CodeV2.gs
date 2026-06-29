@@ -45,6 +45,7 @@ function doPost(e) {
       buildShoppingList: function () { return buildShoppingList(payload.selectedDishes || [], payload.includeBaseProducts); },
       randomDish: function () { return randomDish(payload.filters || {}); },
       validateData: validateData,
+      cleanupSeedRows: function () { return cleanupSeedRows(payload); },
       setupSheets: setupSheets,
       migrateLegacyData: migrateLegacyData
     };
@@ -351,11 +352,9 @@ function buildShoppingList(selectedDishes, includeBaseProducts) {
 
 function randomDish(filters) {
   var settings = getSettings();
-  var forbidden = settings.forbiddenProducts.map(norm_);
   var candidates = getDishes().filter(function (dish) {
-    var text = norm_(dish.dishName + ' ' + dish.tags.join(' ') + ' ' + dish.ingredients.map(function (i) { return i.productName; }).join(' '));
     if (!dish.active) return false;
-    if (forbidden.some(function (word) { return word && text.indexOf(word) >= 0; })) return false;
+    if (hasForbidden_(dish, settings.forbiddenProducts)) return false;
     if (filters.quick && Number(dish.cookingTimeMin || 999) > 45) return false;
     if (filters.budget && dish.budgetLevel !== 'low') return false;
     if (filters.leftovers && !dish.leftovers) return false;
@@ -376,6 +375,58 @@ function validateData() {
     if (!dish.cookingTimeMin) warnings.push('Нет времени готовки: ' + dish.dishName);
   });
   return { warnings: warnings };
+}
+
+function cleanupSeedRows(payload) {
+  setupSheets();
+  payload = payload || {};
+  var dryRun = payload.dryRun !== false;
+  var summary = {
+    dryRun: dryRun,
+    qaRows: {},
+    duplicateSelectedDinners: 0,
+    deletedRows: 0
+  };
+
+  summary.qaRows.dish_ingredients = deleteRowsByPredicate_('dish_ingredients', function (row) {
+    return startsQa_(cell_(row, 'dish_id')) || startsQa_(cell_(row, 'product_id')) || hasQaText_(cell_(row, 'comment'));
+  }, dryRun);
+
+  summary.qaRows.dishes = deleteRowsByPredicate_('dishes', function (row) {
+    return startsQa_(cell_(row, 'dish_id')) || hasQaText_(cell_(row, 'recipe_note'));
+  }, dryRun);
+
+  summary.qaRows.base_products = deleteRowsByPredicate_('base_products', function (row) {
+    return startsQa_(cell_(row, 'product_id')) || hasQaText_(cell_(row, 'store_note'));
+  }, dryRun);
+
+  summary.qaRows.calendar_plan = deleteRowsByPredicate_('calendar_plan', function (row) {
+    return cell_(row, 'day_label') === 'qa' ||
+      startsQa_(cell_(row, 'option_a_dish_id')) ||
+      startsQa_(cell_(row, 'option_b_dish_id')) ||
+      startsQa_(cell_(row, 'quick_dish_id')) ||
+      startsQa_(cell_(row, 'selected_dish_id')) ||
+      hasQaText_(cell_(row, 'note'));
+  }, dryRun);
+
+  summary.qaRows.shopping_sessions = deleteRowsByPredicate_('shopping_sessions', function (row) {
+    return startsQa_(cell_(row, 'session_id')) || hasQaText_(cell_(row, 'note'));
+  }, dryRun);
+
+  summary.qaRows.selected_dinners = deleteRowsByPredicate_('selected_dinners', function (row) {
+    return startsQa_(cell_(row, 'id')) ||
+      startsQa_(cell_(row, 'dish_id')) ||
+      cell_(row, 'day_label') === 'qa' ||
+      hasQaText_(cell_(row, 'note')) ||
+      isLegacyProductionSeedSelection_(row);
+  }, dryRun);
+
+  summary.duplicateSelectedDinners = dedupeRowsByKey_('selected_dinners', 'id', dryRun);
+  Object.keys(summary.qaRows).forEach(function (name) {
+    summary.deletedRows += summary.qaRows[name];
+  });
+  summary.deletedRows += summary.duplicateSelectedDinners;
+  return summary;
 }
 
 function migrateLegacyData() {
@@ -595,6 +646,46 @@ function deleteRowsByKey_(sheetName, keyHeader, keyValue) {
   }
 }
 
+function deleteRowsByPredicate_(sheetName, predicate, dryRun) {
+  var sheet = ensureSheet_(sheetName, SHEETS[sheetName]);
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(trim_);
+  var values = sheet.getDataRange().getValues();
+  var rowsToDelete = [];
+  for (var i = 1; i < values.length; i++) {
+    var row = {};
+    headers.forEach(function (header, index) { row[header] = trim_(values[i][index]); });
+    if (predicate(row)) rowsToDelete.push(i + 1);
+  }
+  if (!dryRun) {
+    for (var j = rowsToDelete.length - 1; j >= 0; j--) {
+      sheet.deleteRow(rowsToDelete[j]);
+    }
+  }
+  return rowsToDelete.length;
+}
+
+function dedupeRowsByKey_(sheetName, keyHeader, dryRun) {
+  var sheet = ensureSheet_(sheetName, SHEETS[sheetName]);
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(trim_);
+  var keyIndex = headers.indexOf(keyHeader);
+  if (keyIndex < 0) throwUserError_('Missing key column: ' + keyHeader);
+  var values = sheet.getDataRange().getValues();
+  var seen = {};
+  var rowsToDelete = [];
+  for (var i = values.length - 1; i >= 1; i--) {
+    var key = trim_(values[i][keyIndex]);
+    if (!key) continue;
+    if (seen[key]) rowsToDelete.push(i + 1);
+    else seen[key] = true;
+  }
+  if (!dryRun) {
+    for (var j = 0; j < rowsToDelete.length; j++) {
+      sheet.deleteRow(rowsToDelete[j]);
+    }
+  }
+  return rowsToDelete.length;
+}
+
 function addShoppingItem_(merged, item) {
   var key = norm_(item.productName + ':' + (item.unit || ''));
   if (!merged[key]) {
@@ -607,8 +698,19 @@ function addShoppingItem_(merged, item) {
 }
 
 function hasForbidden_(dish, forbiddenProducts) {
-  var text = norm_(dish.dishName + ' ' + dish.tags.join(' ') + ' ' + dish.ingredients.map(function (i) { return i.productName; }).join(' '));
-  return forbiddenProducts.map(norm_).some(function (word) { return word && text.indexOf(word) >= 0; });
+  var text = productSearchText_(dish.dishName + ' ' + dish.tags.join(' ') + ' ' + dish.ingredients.map(function (i) { return i.productName; }).join(' '));
+  return forbiddenProducts.some(function (product) {
+    var token = productSearchToken_(product);
+    return token && text.indexOf(' ' + token + ' ') >= 0;
+  });
+}
+
+function productSearchText_(value) {
+  return ' ' + norm_(value).replace(/[^a-zа-я0-9]+/g, ' ') + ' ';
+}
+
+function productSearchToken_(value) {
+  return norm_(value).replace(/[^a-zа-я0-9]+/g, ' ').trim();
 }
 
 function findDishIdByName_(name) {
@@ -648,6 +750,20 @@ function trim_(value) {
 
 function norm_(value) {
   return trim_(value).toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ');
+}
+
+function startsQa_(value) {
+  return /^QA-/i.test(trim_(value));
+}
+
+function hasQaText_(value) {
+  return /QA smoke test/i.test(trim_(value));
+}
+
+function isLegacyProductionSeedSelection_(row) {
+  return cell_(row, 'source') === 'seed' &&
+    cell_(row, 'note') === 'production seed' &&
+    /^\d{4}-\d{2}-\d{2}-D-/.test(cell_(row, 'id'));
 }
 
 function toBool_(value, defaultValue) {
