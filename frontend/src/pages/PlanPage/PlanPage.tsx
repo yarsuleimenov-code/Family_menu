@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react';
 import { Shuffle } from 'lucide-react';
 import { DishCard } from '../../components/DishCard/DishCard';
-import { useAppState } from '../../app/AppState';
+import { calendarPlanWriteKey, selectedDinnerWriteKey, useAppState } from '../../app/AppState';
 import type { DishFilters } from '../../types/dish';
 import type { SelectedDinner } from '../../types/plan';
 import { addDays, dayLabel, formatRuDate, getDateRange, todayIso } from '../../utils/dates';
 import { hasForbiddenProducts, randomDish } from '../../services/randomDish';
 
 export function PlanPage() {
-  const { data, saveSelectedDinner, saveCalendarPlan } = useAppState();
+  const { data, saveSelectedDinner, saveCalendarPlan, saveStatuses, pendingWrites, retryPendingWrites } = useAppState();
   const [date, setDate] = useState(todayIso());
   const [rangeTo, setRangeTo] = useState(addDays(todayIso(), 6));
   const [filters, setFilters] = useState<DishFilters>({});
@@ -18,6 +18,11 @@ export function PlanPage() {
   const selected = data.selectedDinners.find((item) => item.date === date);
   const weekDates = getDateRange(date, rangeTo);
   const weekSelections = data.selectedDinners.filter((item) => weekDates.includes(item.date));
+  const selectedStatusKey = selectedDinnerWriteKey(date);
+  const planStatusKey = calendarPlanWriteKey(date);
+  const dateSaveStatuses = [saveStatuses[selectedStatusKey], saveStatuses[planStatusKey]].filter(Boolean);
+  const datePendingWrites = pendingWrites.filter((write) => write.statusKey === selectedStatusKey || write.statusKey === planStatusKey);
+  const saveNotice = getSaveNotice(dateSaveStatuses, datePendingWrites.length);
 
   const options = useMemo(() => {
     const ids = [currentPlan?.optionADishId, currentPlan?.optionBDishId, currentPlan?.quickDishId].filter(Boolean);
@@ -95,6 +100,13 @@ export function PlanPage() {
         <div><strong>{selected?.dishName || 'Ужин не выбран'}</strong><span>{weekSelections.length} выбрано в диапазоне</span></div>
       </section>
 
+      {saveNotice ? (
+        <div className={`save-status save-status--${saveNotice.kind}`}>
+          <span>{saveNotice.message}</span>
+          {datePendingWrites.length ? <button type="button" onClick={() => void retryPendingWrites()}>Повторить</button> : null}
+        </div>
+      ) : null}
+
       <section className="section-block">
         <div className="section-title">
           <h2>Варианты на день</h2>
@@ -142,4 +154,20 @@ export function PlanPage() {
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
   return <button type="button" className={checked ? 'selected-filter' : ''} onClick={() => onChange(!checked)}>{label}</button>;
+}
+
+function getSaveNotice(
+  statuses: Array<{ status: string; message: string; error?: string }>,
+  pendingCount: number,
+): { kind: 'saving' | 'saved' | 'error' | 'local'; message: string } | null {
+  if (statuses.some((status) => status.status === 'saving')) {
+    return { kind: 'saving', message: 'Сохраняем...' };
+  }
+  if (pendingCount || statuses.some((status) => status.status === 'error' || status.status === 'local')) {
+    return { kind: 'error', message: 'Ошибка сохранения. Выбор остался локально.' };
+  }
+  if (statuses.some((status) => status.status === 'saved')) {
+    return { kind: 'saved', message: 'Сохранено' };
+  }
+  return null;
 }

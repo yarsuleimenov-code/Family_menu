@@ -162,6 +162,56 @@ QA observations:
 - `/shopping`: representative checkbox `В корзине` сохранился после reload; отдельный shopping status key не перетёрся live refresh.
 - Backend `getAppData` timing после v7 deployment: первый read `2461ms`, повторный cached read `1430ms`, counts совпали `20/24/14/9/0`.
 
+## Save Reliability
+
+Дата проверки: 2026-06-29
+
+Ветка: `feature/save-reliability`
+
+Цель: пользователь должен видеть, сохраняется ли выбранный ужин, и не терять локальный выбор при ошибке Apps Script / Google Sheets.
+
+Реализовано:
+
+- Все write-операции в `AppState` переведены на единый optimistic write path с результатом `Promise<boolean>`.
+- Добавлены статусы сохранения: `Сохраняем...`, `Сохранено`, `Ошибка сохранения`, `Работаем с локальными данными`.
+- Failed write сохраняется в localStorage по ключу `familyMenu.pendingWrites.v1`.
+- Для pending writes добавлен retry: `retryPendingWrite` / `retryPendingWrites`.
+- Локальный выбор не теряется после background refresh: pending writes накладываются поверх свежего `getAppData` перед render/cache.
+- После optimistic update обновляется frontend cache, поэтому reload не сбрасывает локальный выбор.
+- На `/plan` показан компактный save-status для выбранной даты и кнопка `Повторить`, если запись не ушла.
+- На `/shopping` показан save-status для последней shopping session и кнопка `Повторить`, если запись не ушла.
+
+Проверки:
+
+| Проверка | Статус | Факт |
+|---|---|---|
+| `tsc` | Passed | Выполнен через локальный `node_modules/.bin/tsc.cmd`. |
+| `vite build` | Passed | Production build завершился успешно. |
+| `build:pages` | Passed | `/docs` обновлён для GitHub Pages. |
+| Live API smoke | Passed | `scripts/live_api_smoke.mjs`, runId `QA-1782734116786`. |
+| Smoke cleanup | Passed | Удалено 8 QA rows; финальные counts `20/24/14/9/0`. |
+| Mobile preview `/plan` | Passed | Viewport `390x844`, экран `План` отображается, bottom nav видна, console errors/warnings отсутствуют. |
+| Mobile nav `/plan -> /shopping` | Passed | Переход через нижнюю навигацию работает, `/shopping` отображается без горизонтального переполнения. |
+
+Live smoke result:
+
+```json
+{
+  "ok": true,
+  "runId": "QA-1782734116786",
+  "qaDate": "2099-12-31",
+  "results": [
+    "read:dishes/calendar_plan/base_products",
+    "write:selected_dinners",
+    "shopping:selected-only/no-alternatives/base-off",
+    "shopping:base-on",
+    "write:shopping_sessions"
+  ]
+}
+```
+
+Ограничение проверки: принудительный failed-write сценарий в браузере не выполнялся на production endpoint, чтобы не искажать рабочие данные. Поведение покрыто общей write-логикой: при ошибке API запись остаётся в cache + `familyMenu.pendingWrites.v1`, а UI показывает локальный статус и retry.
+
 ## Known Limitations
 
 - Apps Script cold start может занимать 20-45 секунд.

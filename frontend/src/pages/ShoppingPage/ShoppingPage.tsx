@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Copy, Printer, Save, Trash2 } from 'lucide-react';
 import { ShoppingItem } from '../../components/ShoppingItem/ShoppingItem';
-import { useAppState } from '../../app/AppState';
+import { shoppingSessionWriteKey, useAppState } from '../../app/AppState';
 import { buildShoppingList } from '../../services/shoppingListBuilder';
 import { readStorage, writeStorage } from '../../services/storage';
 import type { ShoppingItemStatus, ShoppingSession } from '../../types/shopping';
@@ -11,7 +11,7 @@ import { formatTenge, isOverBudget, sumShoppingItems } from '../../utils/budget'
 const STATUS_KEY = 'shopping-status';
 
 export function ShoppingPage() {
-  const { data, saveShoppingSession } = useAppState();
+  const { data, saveShoppingSession, saveStatuses, pendingWrites, retryPendingWrites } = useAppState();
   const [dateFrom, setDateFrom] = useState(todayIso());
   const [dateTo, setDateTo] = useState(addDays(todayIso(), 6));
   const [includeBase, setIncludeBase] = useState(true);
@@ -19,6 +19,7 @@ export function ShoppingPage() {
   const [statusByKey, setStatusByKey] = useState<Record<string, ShoppingItemStatus>>(() => readStorage(STATUS_KEY, {}));
   const [message, setMessage] = useState('');
   const [generatedAt, setGeneratedAt] = useState<string>();
+  const [lastSessionId, setLastSessionId] = useState<string>();
 
   const selectedDinners = useMemo(() => {
     const dates = getDateRange(dateFrom, dateTo);
@@ -29,6 +30,9 @@ export function ShoppingPage() {
   const visibleItems = hideBought ? shoppingItems.filter((item) => item.status !== 'in_cart') : shoppingItems;
   const total = sumShoppingItems(shoppingItems);
   const withoutPrice = shoppingItems.filter((item) => !item.estimatedPrice);
+  const sessionStatusKey = lastSessionId ? shoppingSessionWriteKey(lastSessionId) : undefined;
+  const sessionSaveStatus = sessionStatusKey ? saveStatuses[sessionStatusKey] : undefined;
+  const sessionPendingWrites = sessionStatusKey ? pendingWrites.filter((write) => write.statusKey === sessionStatusKey) : [];
 
   const setStatus = (key: string, status: ShoppingItemStatus) => {
     const next = { ...statusByKey, [key]: status };
@@ -43,8 +47,9 @@ export function ShoppingPage() {
   };
 
   const saveSession = async () => {
+    const sessionId = `S-${Date.now()}`;
     const session: ShoppingSession = {
-      sessionId: `S-${Date.now()}`,
+      sessionId,
       createdAt: new Date().toISOString(),
       dateFrom,
       dateTo,
@@ -53,8 +58,9 @@ export function ShoppingPage() {
       shoppingList: shoppingItems,
       estimatedTotal: total,
     };
-    await saveShoppingSession(session);
-    setMessage('Список сохранён');
+    setLastSessionId(sessionId);
+    const saved = await saveShoppingSession(session);
+    setMessage(saved ? 'Список сохранён' : 'Список сохранён локально. Google Sheets не ответил.');
   };
 
   const clearMarks = () => {
@@ -96,6 +102,12 @@ export function ShoppingPage() {
       {withoutPrice.length ? <div className="inline-note">Без цены: {withoutPrice.map((item) => item.productName).join(', ')}</div> : null}
       {generatedAt ? <div className="inline-note">Последнее формирование: {generatedAt}</div> : null}
       {message ? <div className="inline-note">{message}</div> : null}
+      {sessionSaveStatus ? (
+        <div className={`save-status save-status--${sessionSaveStatus.status}`}>
+          <span>{sessionSaveStatus.message}</span>
+          {sessionPendingWrites.length ? <button type="button" onClick={() => void retryPendingWrites()}>Повторить</button> : null}
+        </div>
+      ) : null}
 
       <div className="toolbar">
         <button className="primary" type="button" onClick={generateList}>Сформировать список</button>
