@@ -212,6 +212,69 @@ Live smoke result:
 
 Ограничение проверки: принудительный failed-write сценарий в браузере не выполнялся на production endpoint, чтобы не искажать рабочие данные. Поведение покрыто общей write-логикой: при ошибке API запись остаётся в cache + `familyMenu.pendingWrites.v1`, а UI показывает локальный статус и retry.
 
+## Menu Data Quality
+
+Дата проверки: 2026-06-29
+
+Ветка: `feature/menu-data-quality`
+
+Цель: сделать random dinner и список покупок полезными на реальных данных, а не на демонстрационном наборе.
+
+Live data update:
+
+- Перед записью создан локальный JSON backup: `outputs/family-menu-before-priority2-1782747351198.json`.
+- Добавлены блюда `D-021..D-045`.
+- Добавлены базовые продукты с ценами `BP-025..BP-048`.
+- Добавлены строки `calendar_plan` на `2026-07-12..2026-07-18`.
+
+Финальный live-срез после resume:
+
+```json
+{
+  "activeDishes": 45,
+  "dishes": 45,
+  "activeBaseProducts": 48,
+  "pricedActiveBaseProducts": 48,
+  "calendarPlan": 21,
+  "validation": {
+    "warnings": []
+  }
+}
+```
+
+Проверки качества:
+
+| Проверка | Статус | Факт |
+|---|---|---|
+| Минимум 40 активных блюд | Passed | В Google Sheets 45 активных блюд. |
+| У активных блюд есть ингредиенты, время, порции, бюджет, теги | Passed | Локальная проверка expansion script: неполных активных блюд нет. |
+| Запрещённые продукты не попали в активное меню | Passed | `validateData.warnings=[]`; новые блюда не используют брокколи, цветную капусту, фасоль, бобовые, нут. |
+| Цены для 80% часто покупаемых продуктов | Passed | 48/48 активных `base_products` имеют `price_per_unit` или `estimated_package_price`. |
+| Проблемные блюда видны на экране `Блюда` | Passed | Добавлен блок `Качество базы` со списком активных блюд, требующих проверки. |
+| Цены ингредиентов учитываются во frontend shopping list | Passed | `shoppingListBuilder` подтягивает цены по совпадению названия ингредиента с `base_products`. |
+| Mobile UI `/dishes` | Passed | Viewport `390x844`: после live refresh 45 карточек, `Качество базы` показывает `Проблемных активных блюд нет`, поиск `индейка` оставляет 3 карточки, console errors/warnings отсутствуют. |
+
+Live smoke after expansion:
+
+```json
+{
+  "ok": true,
+  "runId": "QA-1782748105001",
+  "qaDate": "2099-12-31",
+  "results": [
+    "read:dishes/calendar_plan/base_products",
+    "write:selected_dinners",
+    "shopping:selected-only/no-alternatives/base-off",
+    "shopping:base-on",
+    "write:shopping_sessions"
+  ]
+}
+```
+
+После smoke выполнен cleanup: удалено 8 QA rows; финальные counts `dishes=45`, `baseProducts=48`, `calendarPlan=21`, `selectedDinners=9`, `shoppingSessions=0`.
+
+Ограничение: `apps-script/CodeV2.gs` обновлён в репозитории для усиленного `validateData` и backend price lookup, но production Apps Script endpoint начнёт использовать эти изменения только после ручного обновления/deploy в Apps Script.
+
 ## Known Limitations
 
 - Apps Script cold start может занимать 20-45 секунд.

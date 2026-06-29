@@ -14,12 +14,14 @@ export function buildShoppingList(
   statusByKey: Record<string, ShoppingItemStatus> = {},
 ): ShoppingItem[] {
   const dishById = new Map(dishes.map((dish) => [dish.dishId, dish]));
+  const priceByProduct = new Map(baseProducts.filter((product) => product.active).map((product) => [normalizeKey(product.productName), product]));
   const merged = new Map<string, ShoppingItem>();
 
   selectedDinners.forEach((selection) => {
     const dish = dishById.get(selection.dishId);
     if (!dish) return;
     dish.ingredients.forEach((ingredient) => {
+      const priceSource = priceByProduct.get(normalizeKey(ingredient.productName));
       addItem(merged, {
         key: normalizeKey(`${ingredient.productName}:${ingredient.unit}`),
         productId: ingredient.productId,
@@ -29,7 +31,9 @@ export function buildShoppingList(
         unit: ingredient.unit,
         usedForDishes: [dish.dishName],
         replacement: ingredient.replacement,
-        comment: ingredient.comment,
+        comment: ingredient.comment || priceSource?.storeNote,
+        pricePerUnit: priceSource?.pricePerUnit,
+        estimatedPrice: estimateIngredientPrice(ingredient.quantity, ingredient.unit, priceSource),
         status: DEFAULT_STATUS,
       });
     });
@@ -91,4 +95,17 @@ function estimatePrice(quantity: number | string, pricePerUnit?: number): number
   const numeric = Number(quantity);
   if (!Number.isFinite(numeric) || !pricePerUnit) return undefined;
   return numeric * pricePerUnit;
+}
+
+function estimateIngredientPrice(quantity: number | string, unit: string | undefined, product?: BaseProduct): number | undefined {
+  if (!product?.pricePerUnit) return undefined;
+  const numeric = Number(quantity);
+  if (!Number.isFinite(numeric)) return undefined;
+  const itemUnit = normalizeKey(unit);
+  const priceUnit = normalizeKey(product.unit);
+  if (itemUnit === priceUnit) return numeric * product.pricePerUnit;
+  if (itemUnit === 'г' && priceUnit === 'кг') return (numeric / 1000) * product.pricePerUnit;
+  if (itemUnit === 'мл' && priceUnit === 'л') return (numeric / 1000) * product.pricePerUnit;
+  if (product.estimatedPackagePrice && numeric === 1) return product.estimatedPackagePrice;
+  return undefined;
 }

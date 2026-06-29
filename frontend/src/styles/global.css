@@ -427,6 +427,32 @@ textarea {
   color: var(--accent-strong);
 }
 
+.quality-panel {
+  padding: 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.issue-list {
+  display: grid;
+  gap: 8px;
+}
+
+.issue-list button {
+  display: grid;
+  gap: 4px;
+  min-height: 48px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.issue-list span {
+  color: var(--danger);
+  font-size: 13px;
+}
+
 .selected-filter {
   border-color: var(--accent);
   background: var(--surface-strong);

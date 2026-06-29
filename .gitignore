@@ -4,3 +4,4 @@ dist/
 .codex-tools/
 .DS_Store
 *.log
+outputs/*.json

@@ -35,6 +35,10 @@ export function DishesPage() {
     const query = normalizeKey(search);
     return !query || normalizeKey(`${dish.dishName} ${dish.mainProtein} ${dish.tags.join(' ')}`).includes(query);
   }), [data.dishes, activeOnly, search]);
+  const activeDishIssues = useMemo(() => data.dishes
+    .filter((dish) => dish.active)
+    .map((dish) => ({ dish, issues: getDishIssues(dish, data.settings.forbiddenProducts) }))
+    .filter((item) => item.issues.length), [data.dishes, data.settings.forbiddenProducts]);
 
   const save = async (dish: Dish) => {
     await saveDish({ ...dish, updatedAt: new Date().toISOString() });
@@ -56,15 +60,28 @@ export function DishesPage() {
         <label className="switch-row"><input type="checkbox" checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)} /> Только активные</label>
       </div>
 
+      <section className="quality-panel">
+        <div className="section-title">
+          <h2>Качество базы</h2>
+          <span>{activeDishIssues.length ? `${activeDishIssues.length} требуют проверки` : 'активные блюда заполнены'}</span>
+        </div>
+        {activeDishIssues.length ? (
+          <div className="issue-list">
+            {activeDishIssues.map(({ dish, issues }) => (
+              <button type="button" key={dish.dishId} onClick={() => setEditing(dish)}>
+                <strong>{dish.dishName || dish.dishId}</strong>
+                <span>{issues.join(', ')}</span>
+              </button>
+            ))}
+          </div>
+        ) : <div className="inline-note">Проблемных активных блюд нет.</div>}
+      </section>
+
       {editing ? <DishForm dish={editing} forbiddenProducts={data.settings.forbiddenProducts} onCancel={() => setEditing(null)} onSave={(dish) => void save(dish)} /> : null}
 
       <div className="dish-list">
         {dishes.map((dish) => {
-          const warnings = [
-            hasForbiddenProducts(dish, data.settings.forbiddenProducts) ? 'Есть запрещённый продукт' : '',
-            !dish.ingredients.length ? 'Нет ингредиентов' : '',
-            !dish.cookingTimeMin ? 'Нет времени готовки' : '',
-          ].filter(Boolean).join('. ');
+          const warnings = getDishIssues(dish, data.settings.forbiddenProducts).join('. ');
           return (
             <DishCard
               key={dish.dishId}
@@ -148,4 +165,16 @@ function parseIngredients(dishId: string, text: string): DishIngredient[] {
       comment,
     } satisfies DishIngredient;
   }).filter(Boolean) as DishIngredient[];
+}
+
+function getDishIssues(dish: Dish, forbiddenProducts: string[]): string[] {
+  if (!dish.active) return [];
+  return [
+    hasForbiddenProducts(dish, forbiddenProducts) ? 'Есть запрещённый продукт' : '',
+    !dish.ingredients.length ? 'Нет ингредиентов' : '',
+    !dish.cookingTimeMin ? 'Нет времени готовки' : '',
+    !dish.portions ? 'Нет порций' : '',
+    !dish.budgetLevel ? 'Нет бюджета' : '',
+    !dish.tags.length ? 'Нет тегов' : '',
+  ].filter(Boolean);
 }
