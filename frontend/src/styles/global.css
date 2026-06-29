@@ -109,6 +109,24 @@ button:hover,
   white-space: nowrap;
 }
 
+.sync-status {
+  max-width: 176px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--accent-strong) !important;
+  font-size: 12px !important;
+  font-weight: 800;
+}
+
+.sync-status--cached,
+.sync-status--refreshing {
+  color: var(--amber) !important;
+}
+
+.sync-status--error {
+  color: var(--danger) !important;
+}
+
 .app-main,
 .page {
   width: min(1120px, 100%);

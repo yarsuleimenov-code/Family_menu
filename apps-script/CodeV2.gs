@@ -17,6 +17,26 @@ var LEGACY = {
   sessions: 'Shopping sessions'
 };
 
+var APP_DATA_CACHE_KEY = 'familyMenu:getAppData:v1';
+var APP_DATA_CACHE_TTL_SECONDS = 180;
+var APP_DATA_CACHE_INVALIDATING_ACTIONS = {
+  saveSelectedDinner: true,
+  saveCalendarPlan: true,
+  saveShoppingSession: true,
+  createDish: true,
+  updateDish: true,
+  deactivateDish: true,
+  createBaseProduct: true,
+  updateBaseProduct: true,
+  deactivateBaseProduct: true,
+  importBackup: true,
+  archiveTestData: true,
+  deleteTestData: true,
+  cleanupSeedRows: true,
+  migrateLegacyData: true,
+  setupSheets: true
+};
+
 function doPost(e) {
   return json_(safeRun_(function () {
     var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
@@ -50,7 +70,9 @@ function doPost(e) {
       migrateLegacyData: migrateLegacyData
     };
     if (!handlers[action]) throwUserError_('Unknown API action: ' + action);
-    return handlers[action]();
+    var result = handlers[action]();
+    if (APP_DATA_CACHE_INVALIDATING_ACTIONS[action]) clearAppDataCache_();
+    return result;
   }));
 }
 
@@ -67,22 +89,50 @@ function setupSheets() {
 }
 
 function getAppData() {
+  var startedAt = new Date().getTime();
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get(APP_DATA_CACHE_KEY);
+  if (cached) {
+    console.log('[FamilyMenu] getAppData cache hit');
+    return JSON.parse(cached);
+  }
+  console.log('[FamilyMenu] getAppData cache miss');
   setupSheets();
-  return {
-    dishes: getDishes(),
-    baseProducts: getBaseProducts(),
-    calendarPlan: getCalendarPlan(),
-    selectedDinners: getRecentSelections(100),
-    shoppingSessions: getShoppingSessions_(20),
-    settings: getSettings(),
-    loadedAt: new Date().toISOString()
-  };
+  var data = readAppData_();
+  try {
+    cache.put(APP_DATA_CACHE_KEY, JSON.stringify(data), APP_DATA_CACHE_TTL_SECONDS);
+  } catch (err) {
+    console.warn('[FamilyMenu] getAppData cache put skipped: ' + err);
+  }
+  console.log('[FamilyMenu] getAppData loaded in ' + (new Date().getTime() - startedAt) + 'ms');
+  return data;
 }
 
 function getDishes() {
   setupSheets();
-  var dishRows = getRows_('dishes');
-  var ingredientRows = getRows_('dish_ingredients');
+  return readDishes_();
+}
+
+function readAppData_() {
+  return {
+    dishes: readDishes_(),
+    baseProducts: readBaseProducts_(),
+    calendarPlan: readCalendarPlan_(),
+    selectedDinners: readRecentSelections_(100),
+    shoppingSessions: readShoppingSessions_(20),
+    settings: readSettings_(),
+    loadedAt: new Date().toISOString()
+  };
+}
+
+function clearAppDataCache_() {
+  CacheService.getScriptCache().remove(APP_DATA_CACHE_KEY);
+  console.log('[FamilyMenu] getAppData cache cleared');
+}
+
+function readDishes_() {
+  var dishRows = readRows_('dishes');
+  var ingredientRows = readRows_('dish_ingredients');
   var byDish = {};
   ingredientRows.forEach(function (row) {
     var dishId = cell_(row, 'dish_id');
@@ -130,7 +180,11 @@ function getDishById(dishId) {
 
 function getCalendarPlan() {
   setupSheets();
-  return getRows_('calendar_plan').filter(notEmptyRow_).map(function (row) {
+  return readCalendarPlan_();
+}
+
+function readCalendarPlan_() {
+  return readRows_('calendar_plan').filter(notEmptyRow_).map(function (row) {
     return {
       date: cell_(row, 'date'),
       dayLabel: cell_(row, 'day_label'),
@@ -148,7 +202,11 @@ function getCalendarPlan() {
 
 function getBaseProducts() {
   setupSheets();
-  return getRows_('base_products').filter(notEmptyRow_).map(function (row) {
+  return readBaseProducts_();
+}
+
+function readBaseProducts_() {
+  return readRows_('base_products').filter(notEmptyRow_).map(function (row) {
     return {
       productId: cell_(row, 'product_id'),
       productName: cell_(row, 'product_name'),
@@ -167,14 +225,19 @@ function getBaseProducts() {
 }
 
 function getShoppingSession(sessionId) {
-  var session = getShoppingSessions_(100).filter(function (item) { return item.sessionId === sessionId; })[0];
+  setupSheets();
+  var session = readShoppingSessions_(100).filter(function (item) { return item.sessionId === sessionId; })[0];
   if (!session) throwUserError_('Shopping session не найдена');
   return session;
 }
 
 function getRecentSelections(limit) {
   setupSheets();
-  return getRows_('selected_dinners').filter(notEmptyRow_).reverse().slice(0, limit || 30).map(function (row) {
+  return readRecentSelections_(limit);
+}
+
+function readRecentSelections_(limit) {
+  return readRows_('selected_dinners').filter(notEmptyRow_).reverse().slice(0, limit || 30).map(function (row) {
     return {
       id: cell_(row, 'id'),
       date: cell_(row, 'date'),
@@ -192,8 +255,12 @@ function getRecentSelections(limit) {
 
 function getSettings() {
   setupSheets();
+  return readSettings_();
+}
+
+function readSettings_() {
   var map = {};
-  getRows_('settings').forEach(function (row) {
+  readRows_('settings').forEach(function (row) {
     if (cell_(row, 'key')) map[cell_(row, 'key')] = cell_(row, 'value');
   });
   return {
@@ -312,8 +379,9 @@ function updateSettings(payload) {
 }
 
 function buildShoppingList(selectedDishes, includeBaseProducts) {
-  var dishes = getDishes();
-  var baseProducts = getBaseProducts();
+  setupSheets();
+  var dishes = readDishes_();
+  var baseProducts = readBaseProducts_();
   var dishById = {};
   dishes.forEach(function (dish) { dishById[dish.dishId] = dish; });
   var merged = {};
@@ -351,8 +419,9 @@ function buildShoppingList(selectedDishes, includeBaseProducts) {
 }
 
 function randomDish(filters) {
-  var settings = getSettings();
-  var candidates = getDishes().filter(function (dish) {
+  setupSheets();
+  var settings = readSettings_();
+  var candidates = readDishes_().filter(function (dish) {
     if (!dish.active) return false;
     if (hasForbidden_(dish, settings.forbiddenProducts)) return false;
     if (filters.quick && Number(dish.cookingTimeMin || 999) > 45) return false;
@@ -368,8 +437,8 @@ function randomDish(filters) {
 function validateData() {
   setupSheets();
   var warnings = [];
-  var settings = getSettings();
-  getDishes().forEach(function (dish) {
+  var settings = readSettings_();
+  readDishes_().forEach(function (dish) {
     if (dish.active && hasForbidden_(dish, settings.forbiddenProducts)) warnings.push('Запрещённый продукт в активном блюде: ' + dish.dishName);
     if (!dish.ingredients.length) warnings.push('Нет ингредиентов: ' + dish.dishName);
     if (!dish.cookingTimeMin) warnings.push('Нет времени готовки: ' + dish.dishName);
@@ -547,7 +616,11 @@ function upsertBaseProduct_(product) {
 
 function getShoppingSessions_(limit) {
   setupSheets();
-  return getRows_('shopping_sessions').filter(notEmptyRow_).reverse().slice(0, limit || 20).map(function (row) {
+  return readShoppingSessions_(limit);
+}
+
+function readShoppingSessions_(limit) {
+  return readRows_('shopping_sessions').filter(notEmptyRow_).reverse().slice(0, limit || 20).map(function (row) {
     return {
       sessionId: cell_(row, 'session_id'),
       createdAt: cell_(row, 'created_at'),
@@ -596,6 +669,11 @@ function ensureSheet_(name, headers) {
 function getRows_(sheetName) {
   var sheet = ensureSheet_(sheetName, SHEETS[sheetName]);
   return rowsFromSheet_(sheet);
+}
+
+function readRows_(sheetName) {
+  var sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
+  return sheet ? rowsFromSheet_(sheet) : [];
 }
 
 function getLegacyRows_(sheetName) {

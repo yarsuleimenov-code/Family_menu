@@ -6,13 +6,13 @@ Endpoint: `https://script.google.com/macros/s/AKfycbwxBrNP6JNIeafbm7iw0uAFyAC9RE
 
 ## Вывод
 
-Статус: Passed for v1 review.
+Статус: Passed for v1 review + performance fast-start branch checks.
 
 Проверена цепочка:
 
 `React frontend -> Apps Script Web App -> Google Sheets -> чтение и запись данных`
 
-`main` не изменялся. Рабочая ветка: `feature/react-family-menu`.
+`main` не изменялся в рамках performance-этапа. Рабочая ветка: `feature/performance-fast-start`.
 
 ## Production-like Dataset
 
@@ -21,7 +21,7 @@ Google Sheet заполнен рабочими данными:
 - `dishes`: 20
 - `base_products`: 24
 - `calendar_plan`: 14
-- `selected_dinners`: 7
+- `selected_dinners`: 8
 - `shopping_sessions`: 0 после очистки QA/seed мусора
 
 `validateData.warnings`: `[]`.
@@ -93,7 +93,7 @@ Live API smoke:
 ```json
 {
   "ok": true,
-  "runId": "QA-1782706020997",
+    "runId": "QA-1782710143000",
   "qaDate": "2099-12-31",
   "results": [
     "read:dishes/calendar_plan/base_products",
@@ -104,6 +104,9 @@ Live API smoke:
   ]
 }
 ```
+
+После smoke-test выполнен `cleanup_family_menu_live.mjs` с `CLEANUP_DRY_RUN=false`.
+Удалено 8 QA rows; финальные счётчики после cleanup: `dishes=20`, `baseProducts=24`, `calendarPlan=14`, `selectedDinners=8`, `shoppingSessions=0`.
 
 Результат:
 
@@ -122,6 +125,41 @@ Live API smoke:
   ]
 }
 ```
+
+## Performance Fast Start
+
+Дата проверки: 2026-06-29
+
+Ветка: `feature/performance-fast-start`
+
+Изменения:
+
+- Frontend читает последний успешный `getAppData` из `localStorage` по ключу `familyMenu.appData.v1`.
+- Метаданные кэша сохраняются по ключу `familyMenu.appDataMeta.v1`.
+- Если кэш есть, интерфейс рендерится сразу, а live refresh из Apps Script идёт в фоне.
+- Если live refresh падает, cached данные остаются доступны, а UI показывает мягкий статус `Ошибка обновления`.
+- Отметки списка покупок не перетираются, потому что shopping statuses остаются в отдельном ключе `family-menu:shopping-status`.
+- В topbar добавлен компактный sync status: `Показаны сохранённые данные`, `Данные обновляются...`, `Обновлено HH:mm`, `Ошибка обновления`, `Работаем с локальными данными`.
+- Apps Script `getAppData` использует `CacheService` с key `familyMenu:getAppData:v1` и TTL `180` секунд.
+- Backend cache сбрасывается после успешных write-операций и QA cleanup/migration actions.
+- `getAppData` читает вкладки через internal read functions без повторных `setupSheets()` внутри одного read-flow.
+
+Performance logging:
+
+- Frontend: `console.info('[FamilyMenu] cached render data read in ...ms')`.
+- Frontend: `console.info('[FamilyMenu] live refresh completed in ...ms')`.
+- Backend: `console.log('[FamilyMenu] getAppData cache hit')`.
+- Backend: `console.log('[FamilyMenu] getAppData cache miss')`.
+
+QA observations:
+
+- Первый запуск без cache ожидаемо ждёт live Apps Script API.
+- Повторный запуск после успешного live refresh должен показывать интерфейс сразу из cache.
+- Backend CacheService вступит в силу после деплоя обновлённого `apps-script/CodeV2.gs` в Apps Script Web App.
+- Local production preview QA: первый live refresh занял `19886ms`; после reload интерфейс `/plan` был виден через `~1270ms` без loading screen.
+- Console подтвердил cache-first path: `[FamilyMenu] cached render data read in 0ms`.
+- Background refresh после cached render завершился за `17808ms` и обновил статус на `Обновлено HH:mm`.
+- `/shopping`: representative checkbox `В корзине` сохранился после reload; отдельный shopping status key не перетёрся live refresh.
 
 ## Known Limitations
 
