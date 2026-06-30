@@ -12,9 +12,26 @@ interface DishCardProps {
   onReplace?: () => void;
   secondaryActionLabel?: string;
   secondaryActionIcon?: ReactNode;
+  secondaryActionDisabled?: boolean;
+  scheduleDate?: string;
+  minScheduleDate?: string;
+  onScheduleDateChange?: (value: string) => void;
 }
 
-export function DishCard({ dish, selected, warning, actionLabel = 'Выбрать блюдо', onAction, onReplace, secondaryActionLabel = 'Заменить', secondaryActionIcon }: DishCardProps) {
+export function DishCard({
+  dish,
+  selected,
+  warning,
+  actionLabel = 'Выбрать блюдо',
+  onAction,
+  onReplace,
+  secondaryActionLabel = 'Заменить',
+  secondaryActionIcon,
+  secondaryActionDisabled,
+  scheduleDate,
+  minScheduleDate,
+  onScheduleDateChange,
+}: DishCardProps) {
   return (
     <article className={`dish-card ${selected ? 'dish-card--selected' : ''}`}>
       <div className="dish-card__media" aria-hidden="true">
@@ -42,7 +59,28 @@ export function DishCard({ dish, selected, warning, actionLabel = 'Выбрат�
         {warning ? <div className="inline-warning">{warning}</div> : null}
         <div className="card-actions">
           {onAction ? <button className={selected ? 'secondary' : 'primary'} type="button" onClick={onAction}>{selected ? 'Выбрано' : actionLabel}</button> : null}
-          {onReplace ? <button className="icon-button" type="button" onClick={onReplace} aria-label={secondaryActionLabel} title={secondaryActionLabel}>{secondaryActionIcon || <RefreshCcw size={18} />}</button> : null}
+          {onScheduleDateChange ? (
+            <input
+              className="card-date-input"
+              type="date"
+              value={scheduleDate || ''}
+              min={minScheduleDate}
+              onChange={(event) => onScheduleDateChange(event.target.value)}
+              aria-label="Дата выбора блюда"
+            />
+          ) : null}
+          {onReplace ? (
+            <button
+              className="icon-button"
+              type="button"
+              onClick={onReplace}
+              disabled={secondaryActionDisabled}
+              aria-label={secondaryActionLabel}
+              title={secondaryActionLabel}
+            >
+              {secondaryActionIcon || <RefreshCcw size={18} />}
+            </button>
+          ) : null}
         </div>
       </div>
     </article>

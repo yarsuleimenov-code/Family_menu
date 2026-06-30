@@ -32,10 +32,11 @@ export function DishesPage() {
   const [search, setSearch] = useState('');
   const [activeOnly, setActiveOnly] = useState(true);
   const [editing, setEditing] = useState<Dish | null>(null);
-  const [targetDate, setTargetDate] = useState(todayIso());
   const [message, setMessage] = useState('');
   const [assigningDishId, setAssigningDishId] = useState<string | null>(null);
   const [lastAssigned, setLastAssigned] = useState<{ dishId: string; date: string } | null>(null);
+  const today = todayIso();
+  const [scheduleDatesByDishId, setScheduleDatesByDishId] = useState<Record<string, string>>({});
 
   const dishes = useMemo(() => data.dishes.filter((dish) => {
     if (activeOnly && !dish.active) return false;
@@ -52,15 +53,28 @@ export function DishesPage() {
     setEditing(null);
   };
 
-  const assignDishToDate = async (dish: Dish) => {
+  const scheduleDateForDish = (dishId: string) => {
+    const value = scheduleDatesByDishId[dishId] ?? today;
+    return value && value < today ? '' : value;
+  };
+
+  const updateScheduleDate = (dishId: string, value: string) => {
+    setScheduleDatesByDishId((current) => ({ ...current, [dishId]: value }));
+  };
+
+  const assignDishToDate = async (dish: Dish, selectedDate: string) => {
+    if (!selectedDate) {
+      setMessage('Выберите дату для блюда.');
+      return;
+    }
     setAssigningDishId(dish.dishId);
     setMessage('');
     const now = new Date().toISOString();
-    const existingPlan = data.calendarPlan.find((row) => row.date === targetDate);
+    const existingPlan = data.calendarPlan.find((row) => row.date === selectedDate);
     const selection: SelectedDinner = {
-      id: `${targetDate}-${dish.dishId}`,
-      date: targetDate,
-      dayLabel: dayLabel(targetDate),
+      id: `${selectedDate}-${dish.dishId}`,
+      date: selectedDate,
+      dayLabel: dayLabel(selectedDate),
       dishId: dish.dishId,
       dishName: dish.dishName,
       source: 'manual',
@@ -69,8 +83,8 @@ export function DishesPage() {
       updatedAt: now,
     };
     const plan: CalendarPlanRow = {
-      date: targetDate,
-      dayLabel: dayLabel(targetDate),
+      date: selectedDate,
+      dayLabel: dayLabel(selectedDate),
       optionADishId: existingPlan?.optionADishId,
       optionBDishId: existingPlan?.optionBDishId,
       quickDishId: existingPlan?.quickDishId,
@@ -82,11 +96,11 @@ export function DishesPage() {
     };
     const selectedSaved = await saveSelectedDinner(selection);
     const planSaved = await saveCalendarPlan(plan);
-    setLastAssigned({ dishId: dish.dishId, date: targetDate });
+    setLastAssigned({ dishId: dish.dishId, date: selectedDate });
     setMessage(
       selectedSaved && planSaved
-        ? `${dish.dishName} выбрано на ${targetDate}`
-        : `${dish.dishName} выбрано локально на ${targetDate}. Запись в Google Sheets требует повтора.`,
+        ? `${dish.dishName} выбрано на ${selectedDate}`
+        : `${dish.dishName} выбрано локально на ${selectedDate}. Запись в Google Sheets требует повтора.`,
     );
     setAssigningDishId(null);
   };
@@ -103,7 +117,6 @@ export function DishesPage() {
 
       <div className="control-panel">
         <label>Поиск <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="курица, паста, быстро" /></label>
-        <label>Дата для выбора <input type="date" value={targetDate} onChange={(event) => setTargetDate(event.target.value)} /></label>
         <label className="switch-row"><input type="checkbox" checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)} /> Только активные</label>
       </div>
 
@@ -131,17 +144,22 @@ export function DishesPage() {
       <div className="dish-list">
         {dishes.map((dish) => {
           const warnings = getDishIssues(dish, data.settings.forbiddenProducts).join('. ');
+          const scheduleDate = scheduleDateForDish(dish.dishId);
           return (
             <DishCard
               key={dish.dishId}
               dish={dish}
-              selected={lastAssigned?.dishId === dish.dishId && lastAssigned.date === targetDate}
+              selected={lastAssigned?.dishId === dish.dishId && lastAssigned.date === scheduleDate}
               warning={warnings || undefined}
               actionLabel="Редактировать"
               onAction={() => setEditing(dish)}
-              onReplace={dish.active && assigningDishId !== dish.dishId ? () => void assignDishToDate(dish) : undefined}
-              secondaryActionLabel={assigningDishId === dish.dishId ? 'Сохраняем...' : `Выбрать на ${targetDate}`}
+              onReplace={dish.active ? () => void assignDishToDate(dish, scheduleDate) : undefined}
+              secondaryActionDisabled={!scheduleDate || assigningDishId === dish.dishId}
+              secondaryActionLabel={assigningDishId === dish.dishId ? 'Сохраняем...' : `Выбрать на ${scheduleDate || 'дату'}`}
               secondaryActionIcon={<CalendarPlus size={18} />}
+              scheduleDate={scheduleDate}
+              minScheduleDate={today}
+              onScheduleDateChange={(value) => updateScheduleDate(dish.dishId, value)}
             />
           );
         })}

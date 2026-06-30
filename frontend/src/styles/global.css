@@ -241,6 +241,18 @@ textarea {
   gap: 8px;
 }
 
+.card-actions {
+  align-items: center;
+}
+
+.card-date-input {
+  width: 136px;
+  min-width: 136px;
+  flex: 0 0 136px;
+  padding-inline: 10px;
+  font-weight: 800;
+}
+
 .toolbar {
   margin: 14px 0;
 }
