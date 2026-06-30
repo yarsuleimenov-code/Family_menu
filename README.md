@@ -178,6 +178,8 @@ node scripts/cleanup_family_menu_live.mjs
 
 Актуальный статус проекта фиксируется в `docs/PROJECT_STATUS.md`, подробный QA - в `docs/QA_REPORT.md`.
 
+Для тестового использования семьёй используйте короткую инструкцию: `docs/FAMILY_TEST_GUIDE.md`.
+
 Ручные smoke-тесты:
 
 1. Открыть `/plan`.
