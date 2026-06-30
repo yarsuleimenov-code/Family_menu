@@ -54,7 +54,7 @@ export function DishesPage() {
   };
 
   const scheduleDateForDish = (dishId: string) => {
-    const value = scheduleDatesByDishId[dishId] ?? today;
+    const value = scheduleDatesByDishId[dishId] ?? '';
     return value && value < today ? '' : value;
   };
 
