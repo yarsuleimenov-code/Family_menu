@@ -285,11 +285,105 @@ textarea {
 }
 
 .dish-list,
+.week-overview,
 .shopping-list,
 .product-list,
 .history-list {
   display: grid;
   gap: 12px;
+}
+
+.week-planner {
+  display: grid;
+  gap: 12px;
+}
+
+.week-planner__actions {
+  display: grid;
+  gap: 8px;
+}
+
+.week-planner__actions button {
+  min-height: 48px;
+}
+
+.week-planner__actions span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.week-day {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.week-day--planned,
+.week-day--replaced {
+  border-color: #b8d8c7;
+  background: var(--surface-strong);
+}
+
+.week-day--cooked {
+  border-color: #82b99d;
+  background: #e5f4ec;
+}
+
+.week-day--skipped {
+  border-color: #e7c5bd;
+  background: var(--danger-bg);
+}
+
+.week-day--empty {
+  border-style: dashed;
+}
+
+.week-day__main {
+  display: grid;
+  grid-template-columns: 76px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 50px;
+  padding: 8px;
+  text-align: left;
+  background: transparent;
+}
+
+.week-day__main span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.week-day__main strong {
+  min-width: 0;
+  color: var(--text);
+}
+
+.week-day__main em {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.week-day__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.week-day__actions button {
+  min-height: 38px;
+  padding: 6px 8px;
+  font-size: 13px;
 }
 
 .dish-card {
