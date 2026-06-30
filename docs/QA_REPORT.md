@@ -352,6 +352,37 @@ Live smoke after expansion:
 - Массовое заполнение использует последовательные write-операции `selected_dinners` + `calendar_plan`; на Apps Script cold start это может быть заметно медленнее, но сохраняет существующую модель надёжности и retry.
 - Если фильтры слишком строгие, часть дней может остаться пустой; UI показывает сообщение с датами, где не хватило вариантов.
 
+## Live Refresh Hardening
+
+Дата проверки: 2026-06-30
+
+Endpoint: `https://script.google.com/macros/s/AKfycbwxBrNP6JNIeafbm7iw0uAFyAC9REAzAHRAcYyrxab43tsfXnKh-0u5AHPMtwv97pps/exec`
+
+Цель: убрать риск runtime warning `normalizeAppData ... Cannot read properties of undefined (reading 'map')` при неполном ответе Apps Script.
+
+Реализовано:
+
+- `normalizeAppData` теперь принимает частичный `getAppData` response.
+- Для `dishes`, `calendarPlan`, `baseProducts`, `selectedDinners`, `shoppingSessions` используется fallback `[]`.
+- Для `shoppingSessions[].selectedDishes` используется fallback `[]`.
+- `settings` мерджится с безопасными default-настройками, `dataSource` фиксируется как `googleSheets`.
+- `loadedAt` заполняется текущим временем, если backend не прислал значение.
+
+Проверки:
+
+| Проверка | Статус | Факт |
+|---|---|---|
+| `tsc --noEmit` | Passed | TypeScript проверка прошла. |
+| `vite build` | Passed | Production build прошёл. |
+| `vite build --base=/Family_menu/ --outDir ../docs` | Passed | GitHub Pages build обновлён. |
+| `scripts/sync_pages_404.mjs` | Passed | `docs/404.html` синхронизирован с `docs/index.html`. |
+| Live `getAppData` read-only | Passed | Counts: `dishes=45`, `calendarPlan=21`, `baseProducts=48`, `selectedDinners=14`, `shoppingSessions=0`, `settings=true`. |
+
+Ограничения:
+
+- Write-smoke не запускался в этом шаге, чтобы не добавлять новые QA-записи в рабочий Google Sheet.
+- Runtime warning проверен кодово и read-only live response; полноценный browser console smoke на Pages стоит повторить после GitHub Pages deploy.
+
 ## Known Limitations
 
 - Apps Script cold start может занимать 20-45 секунд.
