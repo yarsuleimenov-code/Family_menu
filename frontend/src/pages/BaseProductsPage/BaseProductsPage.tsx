@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pencil, Power } from 'lucide-react';
+import { Pencil, Power, RotateCcw } from 'lucide-react';
 import { useAppState } from '../../app/AppState';
 import type { BaseProduct } from '../../types/product';
 import { formatTenge } from '../../utils/budget';
@@ -22,6 +22,14 @@ export function BaseProductsPage() {
   const save = async (product: BaseProduct) => {
     await saveBaseProduct({ ...product, updatedAt: new Date().toISOString() });
     setEditing(null);
+  };
+
+  const toggleActive = async (product: BaseProduct) => {
+    if (product.active) {
+      await deactivateBaseProduct(product.productId);
+      return;
+    }
+    await saveBaseProduct({ ...product, active: true, updatedAt: new Date().toISOString() });
   };
 
   return (
@@ -49,7 +57,15 @@ export function BaseProductsPage() {
               <span>{product.includeByDefault ? 'по умолчанию' : 'по запросу'}</span>
               <div className="product-card__actions">
                 <button className="icon-button" type="button" onClick={() => setEditing(product)} aria-label="Редактировать" title="Редактировать"><Pencil size={18} /></button>
-                {product.active ? <button className="icon-button" type="button" onClick={() => void deactivateBaseProduct(product.productId)} aria-label="Деактивировать" title="Деактивировать"><Power size={18} /></button> : null}
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => void toggleActive(product)}
+                  aria-label={product.active ? 'Деактивировать' : 'Включить'}
+                  title={product.active ? 'Деактивировать' : 'Включить'}
+                >
+                  {product.active ? <Power size={18} /> : <RotateCcw size={18} />}
+                </button>
               </div>
             </div>
           </article>

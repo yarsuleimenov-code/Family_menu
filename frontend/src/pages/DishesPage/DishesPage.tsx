@@ -34,6 +34,8 @@ export function DishesPage() {
   const [editing, setEditing] = useState<Dish | null>(null);
   const [targetDate, setTargetDate] = useState(todayIso());
   const [message, setMessage] = useState('');
+  const [assigningDishId, setAssigningDishId] = useState<string | null>(null);
+  const [lastAssigned, setLastAssigned] = useState<{ dishId: string; date: string } | null>(null);
 
   const dishes = useMemo(() => data.dishes.filter((dish) => {
     if (activeOnly && !dish.active) return false;
@@ -51,6 +53,8 @@ export function DishesPage() {
   };
 
   const assignDishToDate = async (dish: Dish) => {
+    setAssigningDishId(dish.dishId);
+    setMessage('');
     const now = new Date().toISOString();
     const existingPlan = data.calendarPlan.find((row) => row.date === targetDate);
     const selection: SelectedDinner = {
@@ -76,9 +80,15 @@ export function DishesPage() {
       createdAt: existingPlan?.createdAt || now,
       updatedAt: now,
     };
-    await saveSelectedDinner(selection);
-    await saveCalendarPlan(plan);
-    setMessage(`${dish.dishName} выбрано на ${targetDate}`);
+    const selectedSaved = await saveSelectedDinner(selection);
+    const planSaved = await saveCalendarPlan(plan);
+    setLastAssigned({ dishId: dish.dishId, date: targetDate });
+    setMessage(
+      selectedSaved && planSaved
+        ? `${dish.dishName} выбрано на ${targetDate}`
+        : `${dish.dishName} выбрано локально на ${targetDate}. Запись в Google Sheets требует повтора.`,
+    );
+    setAssigningDishId(null);
   };
 
   return (
@@ -125,11 +135,12 @@ export function DishesPage() {
             <DishCard
               key={dish.dishId}
               dish={dish}
+              selected={lastAssigned?.dishId === dish.dishId && lastAssigned.date === targetDate}
               warning={warnings || undefined}
               actionLabel="Редактировать"
               onAction={() => setEditing(dish)}
-              onReplace={dish.active ? () => void assignDishToDate(dish) : undefined}
-              secondaryActionLabel={`Выбрать на ${targetDate}`}
+              onReplace={dish.active && assigningDishId !== dish.dishId ? () => void assignDishToDate(dish) : undefined}
+              secondaryActionLabel={assigningDishId === dish.dishId ? 'Сохраняем...' : `Выбрать на ${targetDate}`}
               secondaryActionIcon={<CalendarPlus size={18} />}
             />
           );
