@@ -7,6 +7,8 @@ import { BaseProductsPage } from '../pages/BaseProductsPage/BaseProductsPage';
 import { HistoryPage } from '../pages/HistoryPage/HistoryPage';
 import { SettingsPage } from '../pages/SettingsPage/SettingsPage';
 
+const routerBasename = import.meta.env.BASE_URL === '/' ? '/' : import.meta.env.BASE_URL.replace(/\/$/, '');
+
 export const router = createBrowserRouter(
   [
     {
@@ -23,5 +25,5 @@ export const router = createBrowserRouter(
       ],
     },
   ],
-  { basename: import.meta.env.BASE_URL },
+  { basename: routerBasename },
 );
