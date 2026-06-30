@@ -176,7 +176,7 @@ $env:CLEANUP_DRY_RUN="false"
 node scripts/cleanup_family_menu_live.mjs
 ```
 
-Актуальный статус проекта фиксируется в `docs/PROJECT_STATUS.md`, подробный QA - в `docs/QA_REPORT.md`.
+Актуальный статус проекта фиксируется в `docs/PROJECT_STATUS.md`, подробный QA - в `docs/QA_REPORT.md`, аудит данных - в `docs/DATA_QUALITY_AUDIT.md`.
 
 Для тестового использования семьёй используйте короткую инструкцию: `docs/FAMILY_TEST_GUIDE.md`.
 
