@@ -229,10 +229,9 @@ export function PlanPage() {
         </div>
       </section>
 
-      <section className="section-block">
+      <section className="section-block random-panel">
         <div className="section-title">
           <h2>Случайное блюдо</h2>
-          <span>без запрещённых продуктов</span>
         </div>
         <div className="filter-grid">
           <Toggle label="быстро" checked={!!filters.quick} onChange={(quick) => setFilters({ ...filters, quick })} />

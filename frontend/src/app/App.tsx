@@ -5,12 +5,12 @@ import { LoadingState } from '../components/LoadingState/LoadingState';
 import { useAppState } from './AppState';
 
 export function App() {
-  const { loading, error, data, syncStatus } = useAppState();
+  const { loading, error, syncStatus } = useAppState();
 
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div>
+        <div className="topbar__brand">
           <strong>Family menu</strong>
           <span>Планировщик семейных ужинов</span>
         </div>
@@ -21,8 +21,6 @@ export function App() {
           >
             {syncStatus.message}
           </span>
-          <span>{data.settings.peopleCount} чел.</span>
-          <span>{new Intl.NumberFormat('ru-KZ').format(data.settings.weeklyBudget)} ₸/нед.</span>
         </div>
       </header>
       <main className="app-main">
