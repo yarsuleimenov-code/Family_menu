@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Clock, RefreshCcw, Utensils } from 'lucide-react';
 import type { Dish } from '../../types/dish';
 import { formatTenge } from '../../utils/budget';
@@ -9,9 +10,11 @@ interface DishCardProps {
   actionLabel?: string;
   onAction?: () => void;
   onReplace?: () => void;
+  secondaryActionLabel?: string;
+  secondaryActionIcon?: ReactNode;
 }
 
-export function DishCard({ dish, selected, warning, actionLabel = 'Выбрать блюдо', onAction, onReplace }: DishCardProps) {
+export function DishCard({ dish, selected, warning, actionLabel = 'Выбрать блюдо', onAction, onReplace, secondaryActionLabel = 'Заменить', secondaryActionIcon }: DishCardProps) {
   return (
     <article className={`dish-card ${selected ? 'dish-card--selected' : ''}`}>
       <div className="dish-card__media" aria-hidden="true">
@@ -39,7 +42,7 @@ export function DishCard({ dish, selected, warning, actionLabel = 'Выбрат�
         {warning ? <div className="inline-warning">{warning}</div> : null}
         <div className="card-actions">
           {onAction ? <button className={selected ? 'secondary' : 'primary'} type="button" onClick={onAction}>{selected ? 'Выбрано' : actionLabel}</button> : null}
-          {onReplace ? <button className="icon-button" type="button" onClick={onReplace} aria-label="Заменить"><RefreshCcw size={18} /></button> : null}
+          {onReplace ? <button className="icon-button" type="button" onClick={onReplace} aria-label={secondaryActionLabel} title={secondaryActionLabel}>{secondaryActionIcon || <RefreshCcw size={18} />}</button> : null}
         </div>
       </div>
     </article>

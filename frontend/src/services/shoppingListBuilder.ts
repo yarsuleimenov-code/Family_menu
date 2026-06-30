@@ -23,7 +23,7 @@ export function buildShoppingList(
     dish.ingredients.forEach((ingredient) => {
       const priceSource = priceByProduct.get(normalizeKey(ingredient.productName));
       addItem(merged, {
-        key: normalizeKey(`${ingredient.productName}:${ingredient.unit}`),
+        key: normalizeKey(ingredient.productName),
         productId: ingredient.productId,
         productName: ingredient.productName,
         category: ingredient.category || 'прочее',
@@ -42,7 +42,7 @@ export function buildShoppingList(
   if (includeBaseProducts) {
     baseProducts.filter((product) => product.active && product.includeByDefault).forEach((product) => {
       addItem(merged, {
-        key: normalizeKey(`${product.productName}:${product.unit}`),
+        key: normalizeKey(product.productName),
         productId: product.productId,
         productName: product.productName,
         category: product.category || 'прочее',
@@ -78,17 +78,42 @@ function addItem(merged: Map<string, ShoppingItem>, next: ShoppingItem): void {
 }
 
 function formatQuantity(quantity: number | string, unit?: string): string {
-  return [quantity, unit].filter(Boolean).join(' ');
+  const normalized = normalizeQuantity(quantity, unit);
+  return normalized ? formatNormalizedQuantity(normalized.value, normalized.unit) : [quantity, unit].filter(Boolean).join(' ');
 }
 
 function mergeQuantity(current: string, next: string): string {
   if (current === next) return current;
-  const currentMatch = current.match(/^([\d.]+)\s+(.+)$/);
-  const nextMatch = next.match(/^([\d.]+)\s+(.+)$/);
-  if (currentMatch && nextMatch && currentMatch[2] === nextMatch[2]) {
-    return `${Number(currentMatch[1]) + Number(nextMatch[1])} ${currentMatch[2]}`;
+  const currentParsed = parseQuantityText(current);
+  const nextParsed = parseQuantityText(next);
+  if (currentParsed && nextParsed && currentParsed.unit === nextParsed.unit) {
+    return formatNormalizedQuantity(currentParsed.value + nextParsed.value, currentParsed.unit);
   }
   return `${current} + ${next}`;
+}
+
+function normalizeQuantity(quantity: number | string, unit?: string): { value: number; unit: string } | null {
+  const numeric = Number(quantity);
+  const normalizedUnit = normalizeKey(unit);
+  if (!Number.isFinite(numeric) || !normalizedUnit) return null;
+  if (normalizedUnit === 'г') return { value: numeric / 1000, unit: 'кг' };
+  if (normalizedUnit === 'кг') return { value: numeric, unit: 'кг' };
+  if (normalizedUnit === 'мл') return { value: numeric / 1000, unit: 'л' };
+  if (normalizedUnit === 'л') return { value: numeric, unit: 'л' };
+  return { value: numeric, unit: String(unit).trim() };
+}
+
+function parseQuantityText(value: string): { value: number; unit: string } | null {
+  const match = value.trim().match(/^([\d.,]+)\s+(.+)$/);
+  if (!match) return null;
+  const numeric = Number(match[1].replace(',', '.'));
+  if (!Number.isFinite(numeric)) return null;
+  return { value: numeric, unit: match[2].trim() };
+}
+
+function formatNormalizedQuantity(value: number, unit: string): string {
+  const rounded = Math.round(value * 100) / 100;
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toString().replace('.', ',')} ${unit}`;
 }
 
 function estimatePrice(quantity: number | string, pricePerUnit?: number): number | undefined {

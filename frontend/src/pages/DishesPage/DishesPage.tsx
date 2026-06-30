@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react';
+import { CalendarPlus } from 'lucide-react';
 import { DishCard } from '../../components/DishCard/DishCard';
 import { useAppState } from '../../app/AppState';
 import type { Dish, DishIngredient } from '../../types/dish';
+import type { CalendarPlanRow, SelectedDinner } from '../../types/plan';
 import { hasForbiddenProducts } from '../../services/randomDish';
 import { normalizeKey } from '../../utils/normalize';
+import { dayLabel, todayIso } from '../../utils/dates';
 
 const emptyDish = (): Dish => ({
   dishId: `D-${Date.now()}`,
@@ -25,10 +28,12 @@ const emptyDish = (): Dish => ({
 });
 
 export function DishesPage() {
-  const { data, saveDish, deactivateDish } = useAppState();
+  const { data, saveDish, saveSelectedDinner, saveCalendarPlan } = useAppState();
   const [search, setSearch] = useState('');
   const [activeOnly, setActiveOnly] = useState(true);
   const [editing, setEditing] = useState<Dish | null>(null);
+  const [targetDate, setTargetDate] = useState(todayIso());
+  const [message, setMessage] = useState('');
 
   const dishes = useMemo(() => data.dishes.filter((dish) => {
     if (activeOnly && !dish.active) return false;
@@ -45,6 +50,37 @@ export function DishesPage() {
     setEditing(null);
   };
 
+  const assignDishToDate = async (dish: Dish) => {
+    const now = new Date().toISOString();
+    const existingPlan = data.calendarPlan.find((row) => row.date === targetDate);
+    const selection: SelectedDinner = {
+      id: `${targetDate}-${dish.dishId}`,
+      date: targetDate,
+      dayLabel: dayLabel(targetDate),
+      dishId: dish.dishId,
+      dishName: dish.dishName,
+      source: 'manual',
+      status: 'planned',
+      createdAt: now,
+      updatedAt: now,
+    };
+    const plan: CalendarPlanRow = {
+      date: targetDate,
+      dayLabel: dayLabel(targetDate),
+      optionADishId: existingPlan?.optionADishId,
+      optionBDishId: existingPlan?.optionBDishId,
+      quickDishId: existingPlan?.quickDishId,
+      selectedDishId: dish.dishId,
+      status: 'planned',
+      note: existingPlan?.note,
+      createdAt: existingPlan?.createdAt || now,
+      updatedAt: now,
+    };
+    await saveSelectedDinner(selection);
+    await saveCalendarPlan(plan);
+    setMessage(`${dish.dishName} выбрано на ${targetDate}`);
+  };
+
   return (
     <section className="page">
       <div className="page-heading">
@@ -52,13 +88,16 @@ export function DishesPage() {
           <h1>Блюда</h1>
           <p>Ассортимент меню и ингредиенты.</p>
         </div>
-        <button className="primary" type="button" onClick={() => setEditing(emptyDish())}>Добавить блюдо</button>
+        <button className="primary" type="button" onClick={() => setEditing(emptyDish())}>Добавить своё блюдо</button>
       </div>
 
       <div className="control-panel">
         <label>Поиск <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="курица, паста, быстро" /></label>
+        <label>Дата для выбора <input type="date" value={targetDate} onChange={(event) => setTargetDate(event.target.value)} /></label>
         <label className="switch-row"><input type="checkbox" checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)} /> Только активные</label>
       </div>
+
+      {message ? <div className="inline-note">{message}</div> : null}
 
       <section className="quality-panel">
         <div className="section-title">
@@ -89,7 +128,9 @@ export function DishesPage() {
               warning={warnings || undefined}
               actionLabel="Редактировать"
               onAction={() => setEditing(dish)}
-              onReplace={dish.active ? () => void deactivateDish(dish.dishId) : undefined}
+              onReplace={dish.active ? () => void assignDishToDate(dish) : undefined}
+              secondaryActionLabel={`Выбрать на ${targetDate}`}
+              secondaryActionIcon={<CalendarPlus size={18} />}
             />
           );
         })}

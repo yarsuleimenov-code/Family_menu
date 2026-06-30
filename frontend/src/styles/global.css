@@ -245,6 +245,18 @@ textarea {
   margin: 14px 0;
 }
 
+.segmented-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.segmented-tabs button {
+  min-height: 40px;
+  padding: 8px 10px;
+}
+
 .switch-row {
   display: flex;
   align-items: center;
@@ -766,6 +778,11 @@ textarea {
   gap: 6px;
   justify-items: end;
   text-align: right;
+}
+
+.product-card__actions {
+  display: flex;
+  gap: 8px;
 }
 
 .form-grid {
