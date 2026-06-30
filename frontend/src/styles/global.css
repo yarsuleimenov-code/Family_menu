@@ -284,6 +284,12 @@ textarea {
   margin-bottom: 12px;
 }
 
+.section-title button {
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
 .dish-list,
 .week-overview,
 .shopping-list,

@@ -31,6 +31,7 @@ export function ShoppingPage() {
   const [message, setMessage] = useState('');
   const [generatedAt, setGeneratedAt] = useState<string>();
   const [lastSessionId, setLastSessionId] = useState<string>();
+  const [manualFormOpen, setManualFormOpen] = useState(false);
   const [manualItems, setManualItems] = useState<ManualShoppingItem[]>(() => readStorage(MANUAL_ITEMS_KEY, []));
   const [manualDraft, setManualDraft] = useState<ManualShoppingItem>({
     id: '',
@@ -107,6 +108,7 @@ export function ShoppingPage() {
     setManualItems(next);
     writeStorage(MANUAL_ITEMS_KEY, next);
     setManualDraft({ id: '', productName: '', quantity: '1', unit: 'шт', category: DEFAULT_MANUAL_CATEGORY });
+    setManualFormOpen(false);
     setMessage('Товар добавлен вручную');
   };
 
@@ -167,20 +169,22 @@ export function ShoppingPage() {
       <section className="manual-item-panel">
         <div className="section-title">
           <h2>Добавить товар</h2>
-          <span>в текущий список</span>
+          <button type="button" onClick={() => setManualFormOpen(!manualFormOpen)}>{manualFormOpen ? 'Свернуть' : 'Открыть'}</button>
         </div>
-        <div className="manual-item-grid">
-          <label>Товар <input value={manualDraft.productName} onChange={(event) => setManualDraft({ ...manualDraft, productName: event.target.value })} placeholder="например, вода" /></label>
-          <label>Кол-во <input value={manualDraft.quantity} onChange={(event) => setManualDraft({ ...manualDraft, quantity: event.target.value })} /></label>
-          <label>Ед. <input value={manualDraft.unit} onChange={(event) => setManualDraft({ ...manualDraft, unit: event.target.value })} /></label>
-          <label>Категория
-            <select value={manualDraft.category} onChange={(event) => setManualDraft({ ...manualDraft, category: event.target.value })}>
-              {shoppingCategories.map((category) => <option key={category} value={category}>{category}</option>)}
-            </select>
-          </label>
-          <label>Цена <input type="number" value={manualDraft.estimatedPrice || ''} onChange={(event) => setManualDraft({ ...manualDraft, estimatedPrice: Number(event.target.value) || undefined })} /></label>
-          <button type="button" className="primary" onClick={addManualItem}><Plus size={18} /> Добавить</button>
-        </div>
+        {manualFormOpen ? (
+          <div className="manual-item-grid">
+            <label>Товар <input value={manualDraft.productName} onChange={(event) => setManualDraft({ ...manualDraft, productName: event.target.value })} placeholder="например, вода" /></label>
+            <label>Кол-во <input value={manualDraft.quantity} onChange={(event) => setManualDraft({ ...manualDraft, quantity: event.target.value })} /></label>
+            <label>Ед. <input value={manualDraft.unit} onChange={(event) => setManualDraft({ ...manualDraft, unit: event.target.value })} /></label>
+            <label>Категория
+              <select value={manualDraft.category} onChange={(event) => setManualDraft({ ...manualDraft, category: event.target.value })}>
+                {shoppingCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+              </select>
+            </label>
+            <label>Цена <input type="number" value={manualDraft.estimatedPrice || ''} onChange={(event) => setManualDraft({ ...manualDraft, estimatedPrice: Number(event.target.value) || undefined })} /></label>
+            <button type="button" className="primary" onClick={addManualItem}><Plus size={18} /> Добавить</button>
+          </div>
+        ) : <div className="muted">Быстро добавить товар, которого нет в плане.</div>}
       </section>
 
       {isOverBudget(total, data.settings.weeklyBudget) ? <div className="budget-warning">Ориентировочная сумма выше недельного бюджета.</div> : null}
@@ -195,7 +199,7 @@ export function ShoppingPage() {
       ) : null}
 
       <div className="toolbar">
-        <button className="primary" type="button" onClick={generateList}>Сформировать список</button>
+        <button className="primary" type="button" onClick={generateList}>Обновить список</button>
         <button type="button" onClick={() => window.print()}><Printer size={18} /> Печать</button>
         <button type="button" onClick={() => void saveSession()}><Save size={18} /> Сохранить</button>
         <button type="button" onClick={markAll}>Отметить всё</button>

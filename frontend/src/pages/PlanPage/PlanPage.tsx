@@ -94,6 +94,14 @@ export function PlanPage() {
   };
 
   const fillWeekRandomly = async () => {
+    const emptyDaysCount = weekDates.filter((targetDate) => !data.selectedDinners.some((item) => item.date === targetDate)).length;
+    if (!emptyDaysCount) {
+      setWeekFillMessage('В диапазоне нет пустых дней.');
+      return;
+    }
+    const confirmed = window.confirm(`Заполнить пустые дни недели случайными блюдами?\n\nБудет заполнено дней: ${emptyDaysCount}. Уже выбранные ужины не изменятся.`);
+    if (!confirmed) return;
+
     setWeekFillBusy(true);
     setWeekFillMessage(undefined);
     let filledCount = 0;
@@ -190,7 +198,7 @@ export function PlanPage() {
                 <strong>{item.selected?.dishName || 'Ужин не выбран'}</strong>
                 <em>{statusLabel(item.selected?.status)}</em>
               </button>
-              {item.selected ? (
+              {item.selected && item.date === date ? (
                 <div className="week-day__actions">
                   <button type="button" className={item.selected.status === 'planned' ? 'selected-filter' : ''} onClick={() => void updateDayStatus(item.date, 'planned')}>План</button>
                   <button type="button" className={item.selected.status === 'cooked' ? 'selected-filter' : ''} onClick={() => void updateDayStatus(item.date, 'cooked')}>Готовили</button>

@@ -6,7 +6,7 @@ const items = [
   { to: '/shopping', label: 'Покупки', icon: ShoppingCart },
   { to: '/dishes', label: 'Блюда', icon: Soup },
   { to: '/base-products', label: 'Базовые', icon: BookOpen },
-  { to: '/history', label: 'Ещё', icon: MoreHorizontal },
+  { to: '/history', label: 'История', icon: MoreHorizontal },
 ];
 
 export function BottomNav() {
