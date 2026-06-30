@@ -383,30 +383,42 @@ function buildShoppingList(selectedDishes, includeBaseProducts) {
   var dishes = readDishes_();
   var baseProducts = readBaseProducts_();
   var dishById = {};
+  var baseByName = {};
   dishes.forEach(function (dish) { dishById[dish.dishId] = dish; });
+  baseProducts.filter(function (product) { return product.active; }).forEach(function (product) {
+    baseByName[norm_(product.productName)] = product;
+  });
   var merged = {};
   selectedDishes.forEach(function (selection) {
     var dish = dishById[selection.dishId];
     if (!dish) return;
     dish.ingredients.forEach(function (ingredient) {
+      var priceSource = baseByName[norm_(ingredient.productName)];
       addShoppingItem_(merged, {
+        productId: ingredient.productId || '',
         productName: ingredient.productName,
         category: ingredient.category || 'прочее',
         quantityText: [ingredient.quantity, ingredient.unit].join(' '),
+        unit: ingredient.unit || '',
         usedForDishes: [dish.dishName],
         replacement: ingredient.replacement || '',
-        comment: ingredient.comment || ''
+        comment: ingredient.comment || (priceSource ? priceSource.storeNote : ''),
+        pricePerUnit: priceSource ? priceSource.pricePerUnit : '',
+        estimatedPrice: estimateIngredientPrice_(ingredient.quantity, ingredient.unit, priceSource)
       });
     });
   });
   if (includeBaseProducts) {
     baseProducts.filter(function (product) { return product.active && product.includeByDefault; }).forEach(function (product) {
       addShoppingItem_(merged, {
+        productId: product.productId,
         productName: product.productName,
         category: product.category || 'прочее',
         quantityText: [product.defaultQuantity, product.unit].join(' '),
+        unit: product.unit || '',
         usedForDishes: ['Базовые покупки'],
         comment: product.storeNote || '',
+        pricePerUnit: product.pricePerUnit || '',
         estimatedPrice: product.estimatedPackagePrice || ''
       });
     });
@@ -440,8 +452,12 @@ function validateData() {
   var settings = readSettings_();
   readDishes_().forEach(function (dish) {
     if (dish.active && hasForbidden_(dish, settings.forbiddenProducts)) warnings.push('Запрещённый продукт в активном блюде: ' + dish.dishName);
-    if (!dish.ingredients.length) warnings.push('Нет ингредиентов: ' + dish.dishName);
-    if (!dish.cookingTimeMin) warnings.push('Нет времени готовки: ' + dish.dishName);
+    if (!dish.active) return;
+    if (!dish.ingredients.length) warnings.push('Активное блюдо неполное, нет ингредиентов: ' + dish.dishName);
+    if (!dish.cookingTimeMin) warnings.push('Активное блюдо неполное, нет времени готовки: ' + dish.dishName);
+    if (!dish.portions) warnings.push('Активное блюдо неполное, нет порций: ' + dish.dishName);
+    if (!dish.budgetLevel) warnings.push('Активное блюдо неполное, нет бюджета: ' + dish.dishName);
+    if (!dish.tags.length) warnings.push('Активное блюдо неполное, нет тегов: ' + dish.dishName);
   });
   return { warnings: warnings };
 }
@@ -773,6 +789,21 @@ function addShoppingItem_(merged, item) {
   merged[key].quantityText = merged[key].quantityText === item.quantityText ? item.quantityText : merged[key].quantityText + ' + ' + item.quantityText;
   merged[key].usedForDishes = unique_(merged[key].usedForDishes.concat(item.usedForDishes));
   merged[key].comment = merged[key].comment || item.comment;
+  merged[key].pricePerUnit = merged[key].pricePerUnit || item.pricePerUnit;
+  merged[key].estimatedPrice = (Number(merged[key].estimatedPrice) || 0) + (Number(item.estimatedPrice) || 0) || '';
+}
+
+function estimateIngredientPrice_(quantity, unit, product) {
+  if (!product || !product.pricePerUnit) return '';
+  var numeric = Number(quantity);
+  if (!Number.isFinite(numeric)) return '';
+  var itemUnit = norm_(unit);
+  var priceUnit = norm_(product.unit);
+  if (itemUnit === priceUnit) return numeric * Number(product.pricePerUnit);
+  if (itemUnit === 'г' && priceUnit === 'кг') return numeric / 1000 * Number(product.pricePerUnit);
+  if (itemUnit === 'мл' && priceUnit === 'л') return numeric / 1000 * Number(product.pricePerUnit);
+  if (product.estimatedPackagePrice && numeric === 1) return product.estimatedPackagePrice;
+  return '';
 }
 
 function hasForbidden_(dish, forbiddenProducts) {

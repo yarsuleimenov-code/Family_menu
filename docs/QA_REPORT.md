@@ -162,6 +162,157 @@ QA observations:
 - `/shopping`: representative checkbox `В корзине` сохранился после reload; отдельный shopping status key не перетёрся live refresh.
 - Backend `getAppData` timing после v7 deployment: первый read `2461ms`, повторный cached read `1430ms`, counts совпали `20/24/14/9/0`.
 
+## Save Reliability
+
+Дата проверки: 2026-06-29
+
+Ветка: `feature/save-reliability`
+
+Цель: пользователь должен видеть, сохраняется ли выбранный ужин, и не терять локальный выбор при ошибке Apps Script / Google Sheets.
+
+Реализовано:
+
+- Все write-операции в `AppState` переведены на единый optimistic write path с результатом `Promise<boolean>`.
+- Добавлены статусы сохранения: `Сохраняем...`, `Сохранено`, `Ошибка сохранения`, `Работаем с локальными данными`.
+- Failed write сохраняется в localStorage по ключу `familyMenu.pendingWrites.v1`.
+- Для pending writes добавлен retry: `retryPendingWrite` / `retryPendingWrites`.
+- Локальный выбор не теряется после background refresh: pending writes накладываются поверх свежего `getAppData` перед render/cache.
+- После optimistic update обновляется frontend cache, поэтому reload не сбрасывает локальный выбор.
+- На `/plan` показан компактный save-status для выбранной даты и кнопка `Повторить`, если запись не ушла.
+- На `/shopping` показан save-status для последней shopping session и кнопка `Повторить`, если запись не ушла.
+
+Проверки:
+
+| Проверка | Статус | Факт |
+|---|---|---|
+| `tsc` | Passed | Выполнен через локальный `node_modules/.bin/tsc.cmd`. |
+| `vite build` | Passed | Production build завершился успешно. |
+| `build:pages` | Passed | `/docs` обновлён для GitHub Pages. |
+| Live API smoke | Passed | `scripts/live_api_smoke.mjs`, runId `QA-1782734116786`. |
+| Smoke cleanup | Passed | Удалено 8 QA rows; финальные counts `20/24/14/9/0`. |
+| Mobile preview `/plan` | Passed | Viewport `390x844`, экран `План` отображается, bottom nav видна, console errors/warnings отсутствуют. |
+| Mobile nav `/plan -> /shopping` | Passed | Переход через нижнюю навигацию работает, `/shopping` отображается без горизонтального переполнения. |
+
+Live smoke result:
+
+```json
+{
+  "ok": true,
+  "runId": "QA-1782734116786",
+  "qaDate": "2099-12-31",
+  "results": [
+    "read:dishes/calendar_plan/base_products",
+    "write:selected_dinners",
+    "shopping:selected-only/no-alternatives/base-off",
+    "shopping:base-on",
+    "write:shopping_sessions"
+  ]
+}
+```
+
+Ограничение проверки: принудительный failed-write сценарий в браузере не выполнялся на production endpoint, чтобы не искажать рабочие данные. Поведение покрыто общей write-логикой: при ошибке API запись остаётся в cache + `familyMenu.pendingWrites.v1`, а UI показывает локальный статус и retry.
+
+## Menu Data Quality
+
+Дата проверки: 2026-06-29
+
+Ветка: `feature/menu-data-quality`
+
+Цель: сделать random dinner и список покупок полезными на реальных данных, а не на демонстрационном наборе.
+
+Live data update:
+
+- Перед записью создан локальный JSON backup: `outputs/family-menu-before-priority2-1782747351198.json`.
+- Добавлены блюда `D-021..D-045`.
+- Добавлены базовые продукты с ценами `BP-025..BP-048`.
+- Добавлены строки `calendar_plan` на `2026-07-12..2026-07-18`.
+
+Финальный live-срез после resume:
+
+```json
+{
+  "activeDishes": 45,
+  "dishes": 45,
+  "activeBaseProducts": 48,
+  "pricedActiveBaseProducts": 48,
+  "calendarPlan": 21,
+  "validation": {
+    "warnings": []
+  }
+}
+```
+
+Проверки качества:
+
+| Проверка | Статус | Факт |
+|---|---|---|
+| Минимум 40 активных блюд | Passed | В Google Sheets 45 активных блюд. |
+| У активных блюд есть ингредиенты, время, порции, бюджет, теги | Passed | Локальная проверка expansion script: неполных активных блюд нет. |
+| Запрещённые продукты не попали в активное меню | Passed | `validateData.warnings=[]`; новые блюда не используют брокколи, цветную капусту, фасоль, бобовые, нут. |
+| Цены для 80% часто покупаемых продуктов | Passed | 48/48 активных `base_products` имеют `price_per_unit` или `estimated_package_price`. |
+| Проблемные блюда видны на экране `Блюда` | Passed | Добавлен блок `Качество базы` со списком активных блюд, требующих проверки. |
+| Цены ингредиентов учитываются во frontend shopping list | Passed | `shoppingListBuilder` подтягивает цены по совпадению названия ингредиента с `base_products`. |
+| Mobile UI `/dishes` | Passed | Viewport `390x844`: после live refresh 45 карточек, `Качество базы` показывает `Проблемных активных блюд нет`, поиск `индейка` оставляет 3 карточки, console errors/warnings отсутствуют. |
+
+Live smoke after expansion:
+
+```json
+{
+  "ok": true,
+  "runId": "QA-1782748105001",
+  "qaDate": "2099-12-31",
+  "results": [
+    "read:dishes/calendar_plan/base_products",
+    "write:selected_dinners",
+    "shopping:selected-only/no-alternatives/base-off",
+    "shopping:base-on",
+    "write:shopping_sessions"
+  ]
+}
+```
+
+После smoke выполнен cleanup: удалено 8 QA rows; финальные counts `dishes=45`, `baseProducts=48`, `calendarPlan=21`, `selectedDinners=9`, `shoppingSessions=0`.
+
+Ограничение: `apps-script/CodeV2.gs` обновлён в репозитории для усиленного `validateData` и backend price lookup, но production Apps Script endpoint начнёт использовать эти изменения только после ручного обновления/deploy в Apps Script.
+
+## Shopping Store Flow
+
+Дата проверки: 2026-06-30
+
+Ветка: `feature/shopping-store-flow`
+
+Цель: сделать список покупок удобным одной рукой в магазине.
+
+Реализовано:
+
+- На `/shopping` добавлена закреплённая сводка: сумма, товаров, в корзине, без цены.
+- Действия `Скрыть купленное`, `Скопировать`, `Очистить` вынесены в постоянно доступную панель.
+- Категории списка получили более заметные заголовки.
+- Количество для смешанных единиц отображается отдельными короткими частями, а не одной длинной строкой.
+- Добавлено ручное добавление товара в текущий список.
+- Для товара добавлены быстрые кнопки статусов `Купить`, `Дома`, `Не покупать`; выпадающий список убран.
+- Ручные товары сохраняются локально и могут быть удалены из текущего списка.
+- Deep link `/Family_menu/shopping` стабилизирован через нормализацию router basename.
+
+Проверки:
+
+| Проверка | Статус | Факт |
+|---|---|---|
+| `tsc --noEmit` | Passed | TypeScript проверка прошла. |
+| `vite build --base=/Family_menu/ --outDir ../docs` | Passed | GitHub Pages build обновлён. |
+| `scripts/sync_pages_404.mjs` | Passed | `docs/404.html` синхронизирован с `docs/index.html`. |
+| Mobile `/shopping`, viewport `390x844` | Passed | Sticky summary отображается, действий достаточно без скролла вверх, горизонтального overflow нет. |
+| Ручное добавление товара | Passed | Добавлен товар `Вода 2 л`, счётчик вырос с 27 до 28, сумма выросла на 600 ₸. |
+| Быстрый статус `Дома` | Passed | Товар получил класс `shopping-item--have_at_home` без dropdown. |
+| `В корзине` + `Скрыть купленное` | Passed | После отметки товар скрывается, summary остаётся доступной. |
+| Console | Partial | Ошибок приложения нет; есть только стандартный React Router future flag warning в dev-сборке. |
+
+Ограничения:
+
+- Ручные товары пока локальные для устройства и не записываются в Google Sheets.
+- Summary считает все товары текущего списка, включая скрытые купленные, чтобы бюджет и общее количество не прыгали во время похода в магазин.
+- Локальный preview не эмулирует GitHub Pages project path для `/Family_menu/assets`; функциональная browser QA выполнена на dev-server `/shopping`, Pages build проверен отдельно.
+
 ## Known Limitations
 
 - Apps Script cold start может занимать 20-45 секунд.
