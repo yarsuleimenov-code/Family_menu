@@ -106,6 +106,7 @@ function dishIssues(dish, forbiddenProducts) {
   if (!hasPositiveNumber(dish.portions)) issues.push('нет порций');
   if (!hasValue(dish.budgetLevel)) issues.push('нет бюджета');
   if (!asArray(dish.tags).length) issues.push('нет тегов');
+  if (!hasValue(dish.recipeNote)) issues.push('нет короткого рецепта');
   if (!ingredients.length) issues.push('нет ингредиентов');
   if (forbidden.length) issues.push(`запрещённые продукты: ${forbidden.join(', ')}`);
 

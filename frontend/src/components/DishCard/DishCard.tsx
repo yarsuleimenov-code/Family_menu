@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Clock, RefreshCcw, Utensils } from 'lucide-react';
+import { BookOpen, Clock, RefreshCcw, Utensils } from 'lucide-react';
 import type { Dish } from '../../types/dish';
 import { formatTenge } from '../../utils/budget';
 
@@ -32,6 +32,7 @@ export function DishCard({
   minScheduleDate,
   onScheduleDateChange,
 }: DishCardProps) {
+  const recipeSteps = recipeLines(dish.recipeNote);
   return (
     <article className={`dish-card ${selected ? 'dish-card--selected' : ''}`}>
       <div className="dish-card__media" aria-hidden="true">
@@ -48,7 +49,15 @@ export function DishCard({
           <span>{dish.portions} порц.</span>
           <span>{budgetLabel(dish.budgetLevel)}</span>
         </div>
-        <p>{dish.recipeNote || 'Краткая логика приготовления не заполнена.'}</p>
+        <p className="recipe-preview">{dish.recipeNote || 'Короткий рецепт не заполнен.'}</p>
+        {dish.recipeNote ? (
+          <details className="recipe-details">
+            <summary><BookOpen size={16} /> Рецепт</summary>
+            <ol>
+              {recipeSteps.map((step, index) => <li key={`${dish.dishId}-step-${index}`}>{step}</li>)}
+            </ol>
+          </details>
+        ) : null}
         <div className="chips">
           {dish.leftovers ? <span>остатки на обед</span> : null}
           {dish.tags.slice(0, 4).map((tag) => <span key={tag}>{tag}</span>)}
@@ -94,4 +103,15 @@ function difficultyLabel(value: Dish['difficulty']): string {
 function budgetLabel(value: Dish['budgetLevel']): string {
   const labels = { low: 'бюджетно', medium: 'средне', high: formatTenge(0).replace('нет цены', 'дороже') };
   return labels[value];
+}
+
+function recipeLines(value?: string): string[] {
+  const text = value?.trim();
+  if (!text) return [];
+  const normalized = text
+    .replace(/\s*(\d+[.)])\s*/g, '\n')
+    .split(/\n|;|\.\s+/)
+    .map((item) => item.replace(/^\d+[.)]\s*/, '').trim())
+    .filter(Boolean);
+  return normalized.length ? normalized : [text];
 }

@@ -203,7 +203,13 @@ function DishForm({ dish, forbiddenProducts, onSave, onCancel }: { dish: Dish; f
       </div>
       <label className="switch-row"><input type="checkbox" checked={draft.leftovers} onChange={(event) => setDraft({ ...draft, leftovers: event.target.checked })} /> Есть остатки на обед</label>
       <label>Теги через запятую <input value={draft.tags.join(', ')} onChange={(event) => setDraft({ ...draft, tags: event.target.value.split(',').map((tag) => tag.trim()) })} /></label>
-      <label>Краткая логика приготовления <textarea value={draft.recipeNote} onChange={(event) => setDraft({ ...draft, recipeNote: event.target.value })} /></label>
+      <label>Короткий рецепт
+        <textarea
+          value={draft.recipeNote}
+          onChange={(event) => setDraft({ ...draft, recipeNote: event.target.value })}
+          placeholder="1. Подготовить продукты. 2. Обжарить или запечь основу. 3. Довести до готовности и подать."
+        />
+      </label>
       <label>Ингредиенты: продукт | категория | количество | единица | замена | комментарий
         <textarea rows={5} value={ingredientText} onChange={(event) => setIngredientText(event.target.value)} />
       </label>
@@ -246,5 +252,6 @@ function getDishIssues(dish: Dish, forbiddenProducts: string[]): string[] {
     !dish.portions ? 'Нет порций' : '',
     !dish.budgetLevel ? 'Нет бюджета' : '',
     !dish.tags.length ? 'Нет тегов' : '',
+    !dish.recipeNote?.trim() ? 'Нет короткого рецепта' : '',
   ].filter(Boolean);
 }
