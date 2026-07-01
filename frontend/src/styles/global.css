@@ -430,6 +430,29 @@ textarea {
   color: var(--text);
 }
 
+.week-day__dish {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.week-day__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.week-day__meta small {
+  min-height: 24px;
+  padding: 3px 7px;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
 .week-day__main em {
   padding: 4px 7px;
   border-radius: 999px;

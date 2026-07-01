@@ -24,10 +24,15 @@ export function PlanPage() {
   const weekSelections = data.selectedDinners.filter((item) => weekDates.includes(item.date));
   const recentSelections = data.selectedDinners.filter((item) => item.date >= addDays(date, -14) && item.date < date);
   const randomExclusions = [...weekSelections, ...recentSelections];
-  const weekOverview = weekDates.map((weekDate) => ({
-    date: weekDate,
-    selected: data.selectedDinners.find((item) => item.date === weekDate),
-  }));
+  const dishById = useMemo(() => new Map(data.dishes.map((dish) => [dish.dishId, dish])), [data.dishes]);
+  const weekOverview = weekDates.map((weekDate) => {
+    const selectedDinner = data.selectedDinners.find((item) => item.date === weekDate);
+    return {
+      date: weekDate,
+      selected: selectedDinner,
+      dish: selectedDinner ? dishById.get(selectedDinner.dishId) : undefined,
+    };
+  });
   const selectedStatusKey = selectedDinnerWriteKey(date);
   const planStatusKey = calendarPlanWriteKey(date);
   const dateSaveStatuses = [saveStatuses[selectedStatusKey], saveStatuses[planStatusKey]].filter(Boolean);
@@ -205,7 +210,14 @@ export function PlanPage() {
             <article className={`week-day week-day--${statusKind(item.selected?.status)}`} key={item.date}>
               <button type="button" className="week-day__main" onClick={() => setDate(item.date)}>
                 <span>{formatRuDate(item.date)}</span>
-                <strong>{item.selected?.dishName || 'Ужин не выбран'}</strong>
+                <div className="week-day__dish">
+                  <strong>{item.selected?.dishName || 'Ужин не выбран'}</strong>
+                  {activeTab === 'plan' && item.dish ? (
+                    <div className="week-day__meta">
+                      {planDishMeta(item.dish).map((meta) => <small key={meta}>{meta}</small>)}
+                    </div>
+                  ) : null}
+                </div>
                 <em>{statusLabel(item.selected?.status)}</em>
               </button>
               {activeTab === 'choose' && item.selected && item.date === date ? (
@@ -279,6 +291,22 @@ function statusLabel(status?: PlanStatus): string {
   if (status === 'replaced') return 'заменено';
   if (status === 'planned') return 'выбрано';
   return 'не выбрано';
+}
+
+function planDishMeta(dish: Dish): string[] {
+  return Array.from(new Set([
+    dish.cookingTimeMin ? `${dish.cookingTimeMin} мин` : '',
+    dish.portions ? `${dish.portions} порц.` : '',
+    budgetLabel(dish.budgetLevel),
+    dish.leftovers ? 'остатки' : '',
+    ...dish.tags.slice(0, 2),
+  ].filter(Boolean)));
+}
+
+function budgetLabel(value: Dish['budgetLevel']): string {
+  if (value === 'low') return 'бюджетно';
+  if (value === 'high') return 'дороже';
+  return 'средне';
 }
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
