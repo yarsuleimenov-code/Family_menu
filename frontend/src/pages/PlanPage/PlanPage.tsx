@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Shuffle } from 'lucide-react';
 import { DishCard } from '../../components/DishCard/DishCard';
@@ -8,15 +8,17 @@ import type { CalendarPlanRow, PlanStatus, SelectedDinner } from '../../types/pl
 import { addDays, dayLabel, formatRuDate, getDateRange, todayIso } from '../../utils/dates';
 import { hasForbiddenProducts, randomDish } from '../../services/randomDish';
 
+const AUTO_DINNER_KEY_PREFIX = 'familyMenu.autoDinner.v1:';
+
 export function PlanPage() {
   const { data, saveSelectedDinner, saveCalendarPlan, saveStatuses, pendingWrites, retryPendingWrites } = useAppState();
   const [date, setDate] = useState(todayIso());
   const [rangeTo, setRangeTo] = useState(addDays(todayIso(), 6));
   const [filters, setFilters] = useState<DishFilters>({});
   const [randomResult, setRandomResult] = useState<string>();
-  const [weekFillMessage, setWeekFillMessage] = useState<string>();
-  const [weekFillBusy, setWeekFillBusy] = useState(false);
+  const [autoDinnerMessage, setAutoDinnerMessage] = useState<string>();
   const [activeTab, setActiveTab] = useState<'plan' | 'choose'>('plan');
+  const autoDinnerRunningRef = useRef(false);
 
   const currentPlan = data.calendarPlan.find((row) => row.date === date);
   const selected = data.selectedDinners.find((item) => item.date === date);
@@ -99,44 +101,57 @@ export function PlanPage() {
     setRandomResult(`Подобрано: ${result.reasons.join(', ') || 'активное блюдо'}. Исключено вариантов: ${result.rejectedCount}.`);
   };
 
-  const fillWeekRandomly = async () => {
-    const emptyDaysCount = weekDates.filter((targetDate) => !data.selectedDinners.some((item) => item.date === targetDate)).length;
-    if (!emptyDaysCount) {
-      setWeekFillMessage('В диапазоне нет пустых дней.');
+  useEffect(() => {
+    const today = todayIso();
+    const storageKey = `${AUTO_DINNER_KEY_PREFIX}${today}`;
+    const todaySelection = data.selectedDinners.find((item) => item.date === today);
+
+    if (todaySelection) {
+      setAutoDinnerMessage(undefined);
       return;
     }
-    const confirmed = window.confirm(`Заполнить пустые дни недели случайными блюдами?\n\nБудет заполнено дней: ${emptyDaysCount}. Уже выбранные ужины не изменятся.`);
-    if (!confirmed) return;
+    if (!data.dishes.length || autoDinnerRunningRef.current || readAutoDinnerMark(storageKey) === 'done') return;
 
-    setWeekFillBusy(true);
-    setWeekFillMessage(undefined);
-    let filledCount = 0;
-    const skippedDates: string[] = [];
-    const exclusions = [...randomExclusions];
+    const recentForToday = data.selectedDinners.filter((item) => item.date >= addDays(today, -14) && item.date < today);
+    const currentWeek = data.selectedDinners.filter((item) => item.date >= today && item.date <= addDays(today, 6));
+    const result = randomDish(data.dishes, { dayType: dayTypeForDate(today) }, data.settings.forbiddenProducts, [...recentForToday, ...currentWeek]);
 
-    try {
-      for (const targetDate of weekDates) {
-        if (data.selectedDinners.some((item) => item.date === targetDate)) continue;
-        const recentForDate = data.selectedDinners.filter((item) => item.date >= addDays(targetDate, -14) && item.date < targetDate);
-        const result = randomDish(data.dishes, filters, data.settings.forbiddenProducts, [...exclusions, ...recentForDate]);
-        if (!result.dish) {
-          skippedDates.push(formatRuDate(targetDate));
-          continue;
-        }
-        await selectDishForDate(targetDate, result.dish.dishId, 'random');
-        exclusions.push(buildSelectedDinner(targetDate, result.dish, 'random', 'planned'));
-        filledCount += 1;
-      }
-
-      setWeekFillMessage(
-        filledCount
-          ? `Заполнено дней: ${filledCount}${skippedDates.length ? `. Не хватило вариантов: ${skippedDates.join(', ')}` : ''}.`
-          : 'В диапазоне нет пустых дней или не найдено подходящих блюд.',
-      );
-    } finally {
-      setWeekFillBusy(false);
+    if (!result.dish) {
+      setAutoDinnerMessage('Автовыбор на сегодня не выполнен: нет подходящего блюда.');
+      return;
     }
-  };
+
+    autoDinnerRunningRef.current = true;
+    writeAutoDinnerMark(storageKey, 'done');
+    const selectedDish = result.dish;
+    const now = new Date().toISOString();
+    const plan = data.calendarPlan.find((row) => row.date === today);
+    const selection = buildSelectedDinner(today, selectedDish, 'random', 'planned');
+    const calendarPlan: CalendarPlanRow = {
+      date: today,
+      dayLabel: dayLabel(today),
+      optionADishId: plan?.optionADishId,
+      optionBDishId: plan?.optionBDishId,
+      quickDishId: plan?.quickDishId,
+      selectedDishId: selectedDish.dishId,
+      status: 'planned',
+      note: plan?.note,
+      createdAt: plan?.createdAt || now,
+      updatedAt: now,
+    };
+
+    void Promise.all([saveSelectedDinner(selection), saveCalendarPlan(calendarPlan)])
+      .then(([selectedSaved, planSaved]) => {
+        setAutoDinnerMessage(
+          selectedSaved && planSaved
+            ? `Сегодня автоматически выбран ужин: ${selectedDish.dishName}.`
+            : `Сегодня выбран ужин локально: ${selectedDish.dishName}. Запись в Google Sheets требует повтора.`,
+        );
+      })
+      .finally(() => {
+        autoDinnerRunningRef.current = false;
+      });
+  }, [data.calendarPlan, data.dishes, data.selectedDinners, data.settings.forbiddenProducts, saveCalendarPlan, saveSelectedDinner]);
 
   const updateDayStatus = async (targetDate: string, status: PlanStatus) => {
     const selection = data.selectedDinners.find((item) => item.date === targetDate);
@@ -195,16 +210,9 @@ export function PlanPage() {
           <span>{weekSelections.length} из {weekDates.length} выбрано</span>
         </div>
         {activeTab === 'choose' ? (
-          <>
-            <div className="week-planner__actions">
-              <button className="primary" type="button" onClick={() => void fillWeekRandomly()} disabled={weekFillBusy}>
-                <Shuffle size={18} /> {weekFillBusy ? 'Заполняем...' : 'Заполнить неделю случайно'}
-              </button>
-              <span>Повторы за последние 14 дней исключаются при наличии вариантов.</span>
-            </div>
-            {weekFillMessage ? <div className="inline-note">{weekFillMessage}</div> : null}
-          </>
+          <div className="inline-note">Новый день заполняется автоматически, если ужин ещё не выбран.</div>
         ) : null}
+        {autoDinnerMessage ? <div className="inline-note">{autoDinnerMessage}</div> : null}
         <div className="week-overview">
           {weekOverview.map((item) => (
             <article className={`week-day week-day--${statusKind(item.selected?.status)}`} key={item.date}>
@@ -307,6 +315,27 @@ function budgetLabel(value: Dish['budgetLevel']): string {
   if (value === 'low') return 'бюджетно';
   if (value === 'high') return 'дороже';
   return 'средне';
+}
+
+function dayTypeForDate(value: string): DishFilters['dayType'] {
+  const day = new Date(`${value}T00:00:00`).getDay();
+  return day === 0 || day === 6 ? 'weekend' : 'weekday';
+}
+
+function readAutoDinnerMark(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeAutoDinnerMark(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Auto dinner guard is an optimization; storage failures must not break planning.
+  }
 }
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
