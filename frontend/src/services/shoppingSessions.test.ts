@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ShoppingItem, ShoppingSession } from '../types/shopping';
-import { completeShoppingSession, copyShoppingSession, createShoppingSession, createShoppingSessionDebouncer, normalizeShoppingSession, stableItemId, updateShoppingItem } from './shoppingSessions';
+import { completeShoppingSession, copyShoppingSession, createShoppingSession, createShoppingSessionDebouncer, normalizeShoppingSession, stableItemId, uniqueShoppingSessions, updateShoppingItem } from './shoppingSessions';
 
 const item = (key: string, status: ShoppingItem['status'] = 'to_buy', source: ShoppingItem['source'] = 'generated'): ShoppingItem => ({
   itemId: '', key, productName: key, category: 'прочее', quantityText: '1 шт', usedForDishes: [], status, source,
@@ -61,5 +61,12 @@ describe('stable shopping sessions', () => {
     expect(save).toHaveBeenCalledTimes(1);
     expect(save.mock.calls[0][0].shoppingList[0].status).toBe('skipped');
     vi.useRealTimers();
+  });
+
+  it('keeps the latest snapshot for each session id', () => {
+    const older = createShoppingSession({ sessionId: 'same', now: '2026-01-01T00:00:00Z', dateFrom: '2026-01-01', dateTo: '2026-01-07', selectedDishes: [], includeBaseProducts: false, items: [item('milk')] });
+    const newer = { ...older, updatedAt: '2026-01-02T00:00:00Z', status: 'completed' as const };
+    const other = createShoppingSession({ sessionId: 'other', now: '2026-01-01T12:00:00Z', dateFrom: '2026-01-01', dateTo: '2026-01-07', selectedDishes: [], includeBaseProducts: false, items: [item('bread')] });
+    expect(uniqueShoppingSessions([older, newer, other])).toEqual([newer, other]);
   });
 });

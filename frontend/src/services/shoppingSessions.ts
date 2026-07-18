@@ -83,6 +83,18 @@ export function findActiveSession(sessions: ShoppingSession[]): ShoppingSession 
   return sessions.map(normalizeShoppingSession).filter((session) => session.status === 'active').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
 }
 
+export function uniqueShoppingSessions(sessions: ShoppingSession[]): ShoppingSession[] {
+  const seen = new Set<string>();
+  return sessions
+    .map(normalizeShoppingSession)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .filter((session) => {
+      if (seen.has(session.sessionId)) return false;
+      seen.add(session.sessionId);
+      return true;
+    });
+}
+
 export function stableItemId(sessionId: string, key: string, index: number): string {
   let hash = 2166136261;
   const value = `${sessionId}:${key}:${index}`;
