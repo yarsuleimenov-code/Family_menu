@@ -3,7 +3,7 @@
 ## Окружения
 
 - Локально: Vite, `VITE_DATA_SOURCE=mock` или `googleSheets`.
-- Frontend: GitHub Pages из ветки `main`, каталог `/docs`.
+- Frontend: рекомендуемая конфигурация GitHub Pages — ветка `main`, каталог `/docs`; фактическую настройку репозитория нужно подтвердить перед deployment.
 - Backend: Google Apps Script Web App, связанный с рабочей Google Sheet.
 
 ## Flow
