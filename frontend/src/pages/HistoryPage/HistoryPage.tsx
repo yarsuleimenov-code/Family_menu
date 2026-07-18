@@ -6,13 +6,14 @@ import { availablePastWeeks } from '../../services/repeatWeek';
 import { formatRuDate } from '../../utils/dates';
 import { todayIso } from '../../utils/dates';
 import { formatTenge } from '../../utils/budget';
-import { normalizeShoppingSession, sessionSummary } from '../../services/shoppingSessions';
+import { sessionSummary, uniqueShoppingSessions } from '../../services/shoppingSessions';
 
 export function HistoryPage() {
   const { data, refresh, saveRepeatedDay } = useAppState();
   const navigate = useNavigate();
   const [repeatSourceWeek, setRepeatSourceWeek] = useState<string>();
   const pastWeeks = useMemo(() => availablePastWeeks(data.selectedDinners, todayIso()), [data.selectedDinners]);
+  const shoppingSessions = useMemo(() => uniqueShoppingSessions(data.shoppingSessions), [data.shoppingSessions]);
   return (
     <section className="page">
       <div className="page-heading">
@@ -54,17 +55,16 @@ export function HistoryPage() {
       </section>
 
       <section className="section-block">
-        <div className="section-title"><h2>Shopping sessions</h2><span>{data.shoppingSessions.length}</span></div>
+        <div className="section-title"><h2>Shopping sessions</h2><span>{shoppingSessions.length}</span></div>
         <div className="history-list">
-          {data.shoppingSessions.slice(0, 10).map((rawSession) => {
-            const session = normalizeShoppingSession(rawSession);
+          {shoppingSessions.slice(0, 10).map((session) => {
             const summary = sessionSummary(session);
             return <article key={session.sessionId} className="history-row history-shopping-row">
               <div><strong>{formatRuDate(session.createdAt)} · {session.status}</strong><span>{formatRuDate(session.dateFrom)}–{formatRuDate(session.dateTo)} · {summary.total} поз. · куплено {summary.purchased} · {formatTenge(summary.estimatedTotal)}</span></div>
               <div className="history-row__actions"><Link to={`/shopping?session=${session.sessionId}`}>Открыть</Link><Link to={`/shopping?copy=${session.sessionId}`}>Повторить без статусов</Link></div>
             </article>;
           })}
-          {!data.shoppingSessions.length ? <div className="empty-state">Завершённые и архивные закупки появятся здесь.</div> : null}
+          {!shoppingSessions.length ? <div className="empty-state">Завершённые и архивные закупки появятся здесь.</div> : null}
         </div>
       </section>
 
