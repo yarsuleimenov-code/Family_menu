@@ -3,7 +3,7 @@ var SHEETS = {
   dish_ingredients: ['dish_id', 'product_id', 'product_name', 'category', 'quantity', 'unit', 'required_optional', 'replacement', 'comment'],
   calendar_plan: ['date', 'day_label', 'option_a_dish_id', 'option_b_dish_id', 'quick_dish_id', 'selected_dish_id', 'status', 'note', 'created_at', 'updated_at'],
   base_products: ['product_id', 'product_name', 'category', 'default_quantity', 'unit', 'price_per_unit', 'estimated_package_price', 'store_note', 'buy_fresh_or_store', 'include_by_default', 'active', 'updated_at'],
-  shopping_sessions: ['session_id', 'created_at', 'date_from', 'date_to', 'selected_dishes_json', 'include_base_products', 'shopping_list_json', 'estimated_total', 'note'],
+  shopping_sessions: ['session_id', 'created_at', 'date_from', 'date_to', 'selected_dishes_json', 'include_base_products', 'shopping_list_json', 'estimated_total', 'note', 'status', 'updated_at', 'completed_at'],
   selected_dinners: ['id', 'date', 'day_label', 'dish_id', 'dish_name', 'source', 'status', 'note', 'created_at', 'updated_at'],
   settings: ['key', 'value', 'comment', 'updated_at'],
   mutation_requests: ['request_id', 'action', 'payload_hash', 'response_json', 'created_at']
@@ -414,7 +414,10 @@ function saveShoppingSession(payload, requestId) {
     include_base_products: payload.includeBaseProducts ? 'yes' : 'no',
     shopping_list_json: JSON.stringify(payload.shoppingList || []),
     estimated_total: payload.estimatedTotal || 0,
-    note: payload.note || ''
+    note: payload.note || '',
+    status: payload.status || 'active',
+    updated_at: payload.updatedAt || new Date().toISOString(),
+    completed_at: payload.completedAt || ''
   });
   return Object.assign({}, payload, { sessionId: sessionId });
 }
@@ -783,7 +786,10 @@ function readShoppingSessions_(limit) {
       includeBaseProducts: toBool_(cell_(row, 'include_base_products')),
       shoppingList: parseJson_(cell_(row, 'shopping_list_json'), []),
       estimatedTotal: Number(cell_(row, 'estimated_total')) || 0,
-      note: cell_(row, 'note')
+      note: cell_(row, 'note'),
+      status: cell_(row, 'status') || 'completed',
+      updatedAt: cell_(row, 'updated_at') || cell_(row, 'created_at'),
+      completedAt: cell_(row, 'completed_at') || undefined
     };
   });
 }

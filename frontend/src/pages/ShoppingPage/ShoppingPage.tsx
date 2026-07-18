@@ -1,281 +1,214 @@
-import { useMemo, useRef, useState } from 'react';
-import { Copy, Plus, Printer, Save, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Copy, Plus, Printer, Trash2 } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ShoppingItem } from '../../components/ShoppingItem/ShoppingItem';
 import { shoppingSessionWriteKey, useAppState } from '../../app/AppState';
 import { buildShoppingList } from '../../services/shoppingListBuilder';
-import { readStorage, writeStorage } from '../../services/storage';
+import {
+  ACTIVE_SHOPPING_SESSION_KEY,
+  completeShoppingSession,
+  copyShoppingSession,
+  createShoppingSessionDebouncer,
+  createShoppingSession,
+  findActiveSession,
+  normalizeShoppingSession,
+  sessionSummary,
+  updateShoppingItem,
+} from '../../services/shoppingSessions';
+import { readStorage, removeStorage, writeStorage } from '../../services/storage';
 import type { ShoppingItem as ShoppingItemType, ShoppingItemStatus, ShoppingSession } from '../../types/shopping';
 import { addDays, getDateRange, todayIso } from '../../utils/dates';
-import { formatTenge, isOverBudget, sumShoppingItems } from '../../utils/budget';
+import { formatTenge, isOverBudget } from '../../utils/budget';
 
-const STATUS_KEY = 'shopping-status';
-const MANUAL_ITEMS_KEY = 'shopping-manual-items';
 const DEFAULT_MANUAL_CATEGORY = 'прочее';
-
-interface ManualShoppingItem {
-  id: string;
-  productName: string;
-  quantity: string;
-  unit: string;
-  category: string;
-  estimatedPrice?: number;
-}
 
 export function ShoppingPage() {
   const { data, saveShoppingSession, saveStatuses, pendingWrites, retryPendingWrite, discardPendingWrite } = useAppState();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const viewedId = searchParams.get('session');
+  const copiedId = searchParams.get('copy');
   const [dateFrom, setDateFrom] = useState(todayIso());
   const [dateTo, setDateTo] = useState(addDays(todayIso(), 6));
   const [includeBase, setIncludeBase] = useState(true);
-  const [hideBought, setHideBought] = useState(false);
-  const [statusByKey, setStatusByKey] = useState<Record<string, ShoppingItemStatus>>(() => readStorage(STATUS_KEY, {}));
+  const [hidePurchased, setHidePurchased] = useState(false);
   const [message, setMessage] = useState('');
-  const [sessionSaving, setSessionSaving] = useState(false);
-  const sessionSavingRef = useRef(false);
-  const [generatedAt, setGeneratedAt] = useState<string>();
-  const [lastSessionId, setLastSessionId] = useState<string>();
   const [manualFormOpen, setManualFormOpen] = useState(false);
-  const [manualItems, setManualItems] = useState<ManualShoppingItem[]>(() => readStorage(MANUAL_ITEMS_KEY, []));
-  const [manualDraft, setManualDraft] = useState<ManualShoppingItem>({
-    id: '',
-    productName: '',
-    quantity: '1',
-    unit: 'шт',
-    category: DEFAULT_MANUAL_CATEGORY,
+  const [manualName, setManualName] = useState('');
+  const [activeSession, setActiveSession] = useState<ShoppingSession | undefined>(() => {
+    const draft = readStorage<ShoppingSession | undefined>(ACTIVE_SHOPPING_SESSION_KEY, undefined);
+    return draft ? normalizeShoppingSession(draft) : undefined;
   });
+  const [newCandidate, setNewCandidate] = useState<ShoppingSession>();
+  const [finishOpen, setFinishOpen] = useState(false);
+  const [remainingConfirmed, setRemainingConfirmed] = useState(false);
+  const saveDebouncer = useRef<ReturnType<typeof createShoppingSessionDebouncer>>();
+  if (!saveDebouncer.current) saveDebouncer.current = createShoppingSessionDebouncer(saveShoppingSession);
+
+  useEffect(() => () => saveDebouncer.current?.flush(), []);
+
+  useEffect(() => {
+    if (!activeSession) {
+      const stored = findActiveSession(data.shoppingSessions);
+      if (stored) {
+        setActiveSession(stored);
+        writeStorage(ACTIVE_SHOPPING_SESSION_KEY, stored);
+      }
+    }
+  }, [activeSession, data.shoppingSessions]);
 
   const selectedDinners = useMemo(() => {
     const dates = getDateRange(dateFrom, dateTo);
     return data.selectedDinners.filter((selection) => dates.includes(selection.date));
   }, [data.selectedDinners, dateFrom, dateTo]);
+  const generatedItems = useMemo(() => buildShoppingList(selectedDinners, data.dishes, data.baseProducts, includeBase), [selectedDinners, data.dishes, data.baseProducts, includeBase]);
+  const viewedSession = useMemo(() => viewedId ? data.shoppingSessions.find((item) => item.sessionId === viewedId) : undefined, [data.shoppingSessions, viewedId]);
+  const copiedSession = useMemo(() => copiedId ? data.shoppingSessions.find((item) => item.sessionId === copiedId) : undefined, [copiedId, data.shoppingSessions]);
+  const session = viewedSession ? normalizeShoppingSession(viewedSession) : activeSession;
+  const readOnly = Boolean(viewedSession);
+  const items = session?.shoppingList || generatedItems;
+  const visibleItems = hidePurchased ? items.filter((item) => item.status !== 'purchased') : items;
+  const summary = session ? sessionSummary(session) : { total: items.length, purchased: 0, skipped: 0, remaining: items.length, estimatedTotal: generatedItems.reduce((sum, item) => sum + (item.estimatedPrice || 0), 0) };
+  const grouped = groupByCategory(visibleItems);
+  const saveStatusKey = activeSession ? shoppingSessionWriteKey(activeSession.sessionId) : undefined;
+  const saveStatus = saveStatusKey ? saveStatuses[saveStatusKey] : undefined;
+  const sessionPending = saveStatusKey ? pendingWrites.filter((write) => write.statusKey === saveStatusKey) : [];
 
-  const generatedItems = useMemo(() => buildShoppingList(selectedDinners, data.dishes, data.baseProducts, includeBase, statusByKey), [selectedDinners, data.dishes, data.baseProducts, includeBase, statusByKey]);
-  const shoppingItems = useMemo(() => [
-    ...generatedItems,
-    ...manualItems.map((item) => manualToShoppingItem(item, statusByKey)),
-  ], [generatedItems, manualItems, statusByKey]);
-  const visibleItems = hideBought ? shoppingItems.filter((item) => item.status !== 'in_cart') : shoppingItems;
-  const total = sumShoppingItems(shoppingItems);
-  const withoutPrice = shoppingItems.filter((item) => !item.estimatedPrice);
-  const inCartCount = shoppingItems.filter((item) => item.status === 'in_cart').length;
-  const sessionStatusKey = lastSessionId ? shoppingSessionWriteKey(lastSessionId) : undefined;
-  const sessionSaveStatus = sessionStatusKey ? saveStatuses[sessionStatusKey] : undefined;
-  const sessionPendingWrites = sessionStatusKey ? pendingWrites.filter((write) => write.statusKey === sessionStatusKey) : [];
-
-  const setStatus = (key: string, status: ShoppingItemStatus) => {
-    const next = { ...statusByKey, [key]: status };
-    setStatusByKey(next);
-    writeStorage(STATUS_KEY, next);
+  const queueSave = (next: ShoppingSession) => {
+    setActiveSession(next);
+    writeStorage(ACTIVE_SHOPPING_SESSION_KEY, next);
+    saveDebouncer.current?.schedule(next);
   };
 
-  const copyList = async () => {
-    const text = shoppingItems.map((item) => `${statusLabel(item.status)} ${item.productName} - ${item.quantityText}`).join('\n');
-    await navigator.clipboard.writeText(`Список покупок\n${text}`);
-    setMessage('Список скопирован');
+  const buildCandidate = (source?: ShoppingSession) => source
+    ? copyShoppingSession(normalizeShoppingSession(source))
+    : createShoppingSession({ dateFrom, dateTo, selectedDishes: selectedDinners, includeBaseProducts: includeBase, items: generatedItems });
+
+  const requestNewSession = (source?: ShoppingSession) => {
+    const candidate = buildCandidate(source);
+    if (activeSession) setNewCandidate(candidate);
+    else startSession(candidate);
   };
 
-  const saveSession = async () => {
-    if (sessionSavingRef.current) return;
-    sessionSavingRef.current = true;
-    setSessionSaving(true);
-    const sessionId = `S-${Date.now()}`;
-    const session: ShoppingSession = {
-      sessionId,
-      createdAt: new Date().toISOString(),
-      dateFrom,
-      dateTo,
-      selectedDishes: selectedDinners,
-      includeBaseProducts: includeBase,
-      shoppingList: shoppingItems,
-      estimatedTotal: total,
-    };
-    setLastSessionId(sessionId);
-    try {
-      const saved = await saveShoppingSession(session);
-      setMessage(saved ? 'Список сохранён' : 'Список сохранён локально. Google Sheets не ответил.');
-    } finally {
-      sessionSavingRef.current = false;
-      setSessionSaving(false);
-    }
+  const startSession = (candidate: ShoppingSession) => {
+    setActiveSession(candidate);
+    writeStorage(ACTIVE_SHOPPING_SESSION_KEY, candidate);
+    setNewCandidate(undefined);
+    void saveShoppingSession(candidate);
+    setMessage('Новая закупка создана');
+    if (viewedId || copiedId) navigate('/shopping');
   };
 
-  const clearMarks = () => {
-    setStatusByKey({});
-    writeStorage(STATUS_KEY, {});
+  const replaceActive = async (status: 'completed' | 'archived') => {
+    if (!activeSession || !newCandidate) return;
+    saveDebouncer.current?.cancel();
+    const now = new Date().toISOString();
+    const previous = { ...activeSession, status, updatedAt: now, completedAt: status === 'completed' ? now : activeSession.completedAt };
+    await saveShoppingSession(previous);
+    startSession(newCandidate);
+  };
+
+  const changeStatus = (itemId: string, status: ShoppingItemStatus) => {
+    if (!activeSession || readOnly) return;
+    queueSave(updateShoppingItem(activeSession, itemId, status));
   };
 
   const addManualItem = () => {
-    if (!manualDraft.productName.trim()) return;
-    const item = {
-      ...manualDraft,
-      id: `manual-${Date.now()}`,
-      productName: manualDraft.productName.trim(),
-      quantity: manualDraft.quantity.trim() || '1',
-      unit: manualDraft.unit.trim() || 'шт',
-      category: manualDraft.category.trim() || DEFAULT_MANUAL_CATEGORY,
-      estimatedPrice: manualDraft.estimatedPrice,
+    if (!activeSession || !manualName.trim()) return;
+    const now = new Date().toISOString();
+    const item: ShoppingItemType = {
+      itemId: crypto.randomUUID(), key: `manual:${crypto.randomUUID()}`, productName: manualName.trim(), category: DEFAULT_MANUAL_CATEGORY,
+      quantityText: '1 шт', usedForDishes: ['Добавлено вручную'], status: 'to_buy', source: 'manual',
     };
-    const next = [item, ...manualItems];
-    setManualItems(next);
-    writeStorage(MANUAL_ITEMS_KEY, next);
-    setManualDraft({ id: '', productName: '', quantity: '1', unit: 'шт', category: DEFAULT_MANUAL_CATEGORY });
+    queueSave({ ...activeSession, updatedAt: now, shoppingList: [item, ...activeSession.shoppingList] });
+    setManualName('');
     setManualFormOpen(false);
-    setMessage('Товар добавлен вручную');
   };
 
-  const removeManualItem = (key: string) => {
-    const id = key.replace(/^manual:/, '');
-    const nextManualItems = manualItems.filter((item) => item.id !== id);
-    const nextStatus = { ...statusByKey };
-    delete nextStatus[key];
-    setManualItems(nextManualItems);
-    setStatusByKey(nextStatus);
-    writeStorage(MANUAL_ITEMS_KEY, nextManualItems);
-    writeStorage(STATUS_KEY, nextStatus);
+  const removeManualItem = (itemId: string) => {
+    if (!activeSession) return;
+    queueSave({ ...activeSession, updatedAt: new Date().toISOString(), shoppingList: activeSession.shoppingList.filter((item) => item.itemId !== itemId) });
   };
 
-  const markAll = () => {
-    const next = Object.fromEntries(shoppingItems.map((item) => [item.key, 'in_cart' as ShoppingItemStatus]));
-    setStatusByKey(next);
-    writeStorage(STATUS_KEY, next);
+  const finishSession = async () => {
+    if (!activeSession) return;
+    const completed = completeShoppingSession(activeSession, remainingConfirmed);
+    if (!completed) return;
+    saveDebouncer.current?.cancel();
+    await saveShoppingSession(completed);
+    removeStorage(ACTIVE_SHOPPING_SESSION_KEY);
+    setActiveSession(undefined);
+    setFinishOpen(false);
+    setRemainingConfirmed(false);
+    setMessage('Закупка завершена и сохранена в Истории');
   };
 
-  const generateList = () => {
-    setGeneratedAt(new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
-    setMessage(shoppingItems.length ? `Список сформирован: ${shoppingItems.length} поз.` : 'Нет выбранных блюд в диапазоне');
+  const copyList = async () => {
+    await navigator.clipboard.writeText(items.map((item) => `${statusLabel(item.status)} ${item.productName} — ${item.quantityText}`).join('\n'));
+    setMessage('Список скопирован');
   };
-
-  const grouped = groupByCategory(visibleItems);
 
   return (
-    <section className="page">
+    <section className="page shopping-page">
       <div className="page-heading">
-        <div>
-          <h1>Покупки</h1>
-          <p>Только выбранные блюда попадают в список.</p>
-        </div>
-        <div className="budget-pill">{formatTenge(total)}</div>
+        <div><h1>{readOnly ? 'Завершённая закупка' : 'Покупки'}</h1><p>{session ? `${session.dateFrom} — ${session.dateTo}` : 'Создайте отдельную закупку из выбранного плана.'}</p></div>
+        <div className="budget-pill">{formatTenge(summary.estimatedTotal)}</div>
       </div>
 
-      <div className="control-panel">
-        <label>С <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label>
-        <label>По <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>
-        <label className="switch-row"><input type="checkbox" checked={includeBase} onChange={(event) => setIncludeBase(event.target.checked)} /> Добавить базовые покупки</label>
-      </div>
+      {copiedSession && session ? <button type="button" className="primary shopping-primary-action" onClick={() => requestNewSession(copiedSession)}>Создать новую на основе прошлой закупки</button> : null}
+
+      {!session ? <>
+        <div className="control-panel">
+          <label>С <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label>
+          <label>По <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>
+          <label className="switch-row"><input type="checkbox" checked={includeBase} onChange={(event) => setIncludeBase(event.target.checked)} /> Добавить базовые покупки</label>
+        </div>
+        <button type="button" className="primary shopping-primary-action" onClick={() => requestNewSession(copiedSession)}> {copiedSession ? 'Создать на основе прошлой закупки' : 'Начать новую закупку'} </button>
+      </> : null}
 
       <section className="shopping-store-panel" aria-label="Сводка покупок">
         <div className="shopping-summary">
-          <div><span>Сумма</span><strong>{formatTenge(total)}</strong></div>
-          <div><span>Товаров</span><strong>{shoppingItems.length}</strong></div>
-          <div><span>В корзине</span><strong>{inCartCount}</strong></div>
-          <div><span>Без цены</span><strong>{withoutPrice.length}</strong></div>
+          <div><span>Куплено</span><strong>{summary.purchased}/{summary.total}</strong></div>
+          <div><span>Осталось</span><strong>{summary.remaining}</strong></div>
+          <div><span>Пропущено</span><strong>{summary.skipped}</strong></div>
+          <div><span>Сумма</span><strong>{formatTenge(summary.estimatedTotal)}</strong></div>
         </div>
         <div className="store-actions">
-          <button type="button" className={hideBought ? 'selected-filter' : ''} onClick={() => setHideBought(!hideBought)}>Скрыть купленное</button>
+          <button type="button" className={hidePurchased ? 'selected-filter' : ''} onClick={() => setHidePurchased(!hidePurchased)}>Скрыть купленные</button>
           <button type="button" onClick={() => void copyList()}><Copy size={18} /> Скопировать</button>
-          <button type="button" onClick={clearMarks}><Trash2 size={18} /> Очистить</button>
+          <button type="button" onClick={() => window.print()}><Printer size={18} /> Печать</button>
         </div>
       </section>
 
-      <section className="manual-item-panel">
-        <div className="section-title">
-          <h2>Добавить товар</h2>
-          <button type="button" onClick={() => setManualFormOpen(!manualFormOpen)}>{manualFormOpen ? 'Свернуть' : 'Открыть'}</button>
-        </div>
-        {manualFormOpen ? (
-          <div className="manual-item-grid">
-            <label>Товар <input value={manualDraft.productName} onChange={(event) => setManualDraft({ ...manualDraft, productName: event.target.value })} placeholder="например, вода" /></label>
-            <label>Кол-во <input value={manualDraft.quantity} onChange={(event) => setManualDraft({ ...manualDraft, quantity: event.target.value })} /></label>
-            <label>Ед. <input value={manualDraft.unit} onChange={(event) => setManualDraft({ ...manualDraft, unit: event.target.value })} /></label>
-            <label>Категория
-              <select value={manualDraft.category} onChange={(event) => setManualDraft({ ...manualDraft, category: event.target.value })}>
-                {shoppingCategories.map((category) => <option key={category} value={category}>{category}</option>)}
-              </select>
-            </label>
-            <label>Цена <input type="number" value={manualDraft.estimatedPrice || ''} onChange={(event) => setManualDraft({ ...manualDraft, estimatedPrice: Number(event.target.value) || undefined })} /></label>
-            <button type="button" className="primary" onClick={addManualItem}><Plus size={18} /> Добавить</button>
-          </div>
-        ) : <div className="muted">Быстро добавить товар, которого нет в плане.</div>}
-      </section>
+      {session && !readOnly ? <section className="manual-item-panel">
+        <div className="section-title"><h2>Добавить товар</h2><button type="button" onClick={() => setManualFormOpen(!manualFormOpen)}>{manualFormOpen ? 'Свернуть' : 'Открыть'}</button></div>
+        {manualFormOpen ? <div className="manual-item-quick"><input value={manualName} onChange={(event) => setManualName(event.target.value)} placeholder="например, вода" /><button type="button" className="primary" onClick={addManualItem}><Plus size={18} /> Добавить</button></div> : null}
+      </section> : null}
 
-      {isOverBudget(total, data.settings.weeklyBudget) ? <div className="budget-warning">Ориентировочная сумма выше недельного бюджета.</div> : null}
-      {withoutPrice.length ? <div className="inline-note">Без цены: {withoutPrice.map((item) => item.productName).join(', ')}</div> : null}
-      {generatedAt ? <div className="inline-note">Последнее формирование: {generatedAt}</div> : null}
       {message ? <div className="inline-note">{message}</div> : null}
-      {sessionSaveStatus ? (
-        <div className={`save-status save-status--${sessionSaveStatus.status}`}>
-          <span>{sessionSaveStatus.message}</span>
-          {sessionPendingWrites.map((write) => (
-            <span className="pending-write-actions" key={write.id}>
-              <span>{write.status === 'expired' ? 'Срок ожидания истёк.' : write.status === 'outcome_unknown' ? 'Результат неизвестен.' : null}</span>
-              {write.status !== 'in_flight' && write.status !== 'expired' ? <button type="button" onClick={() => void retryPendingWrite(write.id)}>Повторить</button> : null}
-              {write.status !== 'in_flight' ? <button type="button" onClick={() => discardPendingWrite(write.id)}>Удалить</button> : null}
-            </span>
-          ))}
-        </div>
-      ) : null}
+      {saveStatus ? <div className={`save-status save-status--${saveStatus.status}`}><span>{saveStatus.message}</span>{sessionPending.map((write) => <span className="pending-write-actions" key={write.id}><span>{write.status === 'outcome_unknown' ? 'Результат синхронизации неизвестен.' : null}</span>{write.status !== 'in_flight' && write.status !== 'expired' ? <button type="button" onClick={() => void retryPendingWrite(write.id)}>Повторить</button> : null}{write.status !== 'in_flight' ? <button type="button" onClick={() => discardPendingWrite(write.id)}>Удалить</button> : null}</span>)}</div> : null}
+      {isOverBudget(summary.estimatedTotal, data.settings.weeklyBudget) ? <div className="budget-warning">Ориентировочная сумма выше недельного бюджета.</div> : null}
 
-      <div className="toolbar">
-        <button className="primary" type="button" onClick={generateList}>Обновить список</button>
-        <button type="button" onClick={() => window.print()}><Printer size={18} /> Печать</button>
-        <button type="button" disabled={sessionSaving} onClick={() => void saveSession()}><Save size={18} /> {sessionSaving ? 'Сохраняем...' : 'Сохранить'}</button>
-        <button type="button" onClick={markAll}>Отметить всё</button>
+      <div className="shopping-session-list">
+        {Object.entries(grouped).map(([category, categoryItems]) => <section className="section-block shopping-category" key={category}>
+          <div className="section-title shopping-category__title"><h2>{category}</h2><span>{categoryItems.length}</span></div>
+          <div className="shopping-list">{categoryItems.map((item) => <ShoppingItem key={item.itemId || item.key} item={item} readOnly={readOnly || !activeSession} onStatusChange={(status) => changeStatus(item.itemId, status)} onRemove={!readOnly && item.source === 'manual' ? () => removeManualItem(item.itemId) : undefined} />)}</div>
+        </section>)}
       </div>
 
-      {!shoppingItems.length ? <div className="empty-state">Выберите ужины в разделе План.</div> : null}
-      {Object.entries(grouped).map(([category, items]) => (
-        <section className="section-block shopping-category" key={category}>
-          <div className="section-title shopping-category__title"><h2>{category}</h2><span>{items.length}</span></div>
-          <div className="shopping-list">
-            {items.map((item) => (
-              <ShoppingItem
-                key={item.key}
-                item={item}
-                onStatusChange={(status) => setStatus(item.key, status)}
-                onRemove={item.key.startsWith('manual:') ? () => removeManualItem(item.key) : undefined}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
+      {session && !readOnly ? <div className="shopping-sticky-action"><strong>Куплено {summary.purchased} из {summary.total}</strong><button type="button" className="primary" onClick={() => setFinishOpen(true)}>Завершить закупку</button></div> : null}
+      {readOnly ? <button type="button" className="primary shopping-primary-action" onClick={() => requestNewSession(session)}>Создать новую на основе этой</button> : null}
+
+      {newCandidate ? <div className="dialog-backdrop" role="presentation"><section className="choice-dialog" role="dialog" aria-modal="true" aria-label="Активная закупка уже существует"><h2>Есть активная закупка</h2><p>Она не будет заменена без вашего решения.</p><button type="button" className="primary" onClick={() => setNewCandidate(undefined)}>Продолжить текущую</button><button type="button" onClick={() => void replaceActive('completed')}>Завершить и создать новую</button><button type="button" onClick={() => void replaceActive('archived')}>Архивировать и создать новую</button><button type="button" onClick={() => setNewCandidate(undefined)}>Отменить</button></section></div> : null}
+      {finishOpen && activeSession ? <div className="dialog-backdrop" role="presentation"><section className="choice-dialog" role="dialog" aria-modal="true" aria-label="Завершить закупку"><h2>Итоги закупки</h2><p>Всего {summary.total}; куплено {summary.purchased}; пропущено {summary.skipped}; осталось {summary.remaining}; сумма {formatTenge(summary.estimatedTotal)}.</p>{summary.remaining ? <label className="repeat-week-warning"><input type="checkbox" checked={remainingConfirmed} onChange={(event) => setRemainingConfirmed(event.target.checked)} /> Подтверждаю завершение с оставшимися товарами.</label> : null}<button type="button" className="primary" disabled={summary.remaining > 0 && !remainingConfirmed} onClick={() => void finishSession()}>Завершить и сохранить</button><button type="button" onClick={() => setFinishOpen(false)}>Продолжить закупку</button></section></div> : null}
     </section>
   );
 }
 
-function groupByCategory(items: ReturnType<typeof buildShoppingList>): Record<string, ReturnType<typeof buildShoppingList>> {
-  return items.reduce<Record<string, ReturnType<typeof buildShoppingList>>>((acc, item) => {
-    acc[item.category] ||= [];
-    acc[item.category].push(item);
-    return acc;
-  }, {});
+function groupByCategory(items: ShoppingItemType[]): Record<string, ShoppingItemType[]> {
+  return items.reduce<Record<string, ShoppingItemType[]>>((result, item) => { (result[item.category] ||= []).push(item); return result; }, {});
 }
-
-function manualToShoppingItem(item: ManualShoppingItem, statusByKey: Record<string, ShoppingItemStatus>): ShoppingItemType {
-  const key = `manual:${item.id}`;
-  return {
-    key,
-    productId: item.id,
-    productName: item.productName,
-    category: item.category,
-    quantityText: [item.quantity, item.unit].filter(Boolean).join(' '),
-    unit: item.unit,
-    usedForDishes: ['Добавлено вручную'],
-    estimatedPrice: item.estimatedPrice,
-    status: statusByKey[key] || 'to_buy',
-  };
-}
-
-const shoppingCategories = [
-  'мясо / птица / рыба',
-  'молочные продукты',
-  'яйца',
-  'крупы / макароны / хлеб',
-  'овощи',
-  'фрукты',
-  'специи / бакалея',
-  'заморозка',
-  DEFAULT_MANUAL_CATEGORY,
-];
 
 function statusLabel(status: ShoppingItemStatus): string {
-  return status === 'in_cart' ? '[в корзине]' : status === 'have_at_home' ? '[есть дома]' : status === 'skip' ? '[не покупать]' : '[купить]';
+  return status === 'purchased' ? '[куплено]' : status === 'skipped' ? '[пропущено]' : '[купить]';
 }

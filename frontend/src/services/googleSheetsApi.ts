@@ -3,6 +3,7 @@ import type { BaseProduct } from '../types/product';
 import type { Dish } from '../types/dish';
 import type { CalendarPlanRow, SelectedDinner } from '../types/plan';
 import type { ShoppingSession } from '../types/shopping';
+import { normalizeShoppingSession } from './shoppingSessions';
 import type { AppSettings } from '../types/settings';
 import { mockData } from '../data/mockData';
 import { coerceIsoDate } from '../utils/dates';
@@ -124,7 +125,7 @@ function normalizeAppData(data: PartialAppData | undefined): AppData {
     baseProducts: asArray(safeData.baseProducts),
     calendarPlan: asArray(safeData.calendarPlan).map((row) => ({ ...row, date: coerceIsoDate(row.date) })),
     selectedDinners: asArray(safeData.selectedDinners).map(normalizeSelection),
-    shoppingSessions: asArray(safeData.shoppingSessions).map((session) => ({
+    shoppingSessions: asArray(safeData.shoppingSessions).map((session) => normalizeShoppingSession({
       ...session,
       dateFrom: coerceIsoDate(session.dateFrom),
       dateTo: coerceIsoDate(session.dateTo),

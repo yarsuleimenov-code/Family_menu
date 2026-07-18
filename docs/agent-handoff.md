@@ -1,5 +1,13 @@
 # Agent handoff
 
+## Stable shopping sessions
+
+- Branch: `codex/stable-shopping-sessions` from `main` `5da63d8acf58e94c40cd3b31c3bc43a0f477155a`.
+- `ShoppingSession` остаётся единственным persistence contract; Apps Script upsert-ит полный snapshot по `sessionId`.
+- Существующий лист `shopping_sessions` лениво получает optional status/timestamp columns через `ensureSheet_`; старые строки читаются без массовой перезаписи.
+- Active draft хранится в `family-menu:shopping-session-active-v1`. Legacy keys `shopping-status` и `shopping-manual-items` не удаляются и игнорируются новым flow.
+- Deployment, live CRUD, integration smoke, production Google Sheet и GitHub Actions не использовались.
+
 ## Функциональная ветка repeat past week
 
 - Ветка `codex/repeat-past-week` реализует История → Повторить неделю → preview → последовательное сохранение → переход в План.

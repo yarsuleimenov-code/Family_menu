@@ -1,5 +1,12 @@
 # Change log
 
+## 2026-07-18 — stable shopping sessions
+
+- Изолированы статусы и ручные товары по `sessionId`; новый flow не использует глобальные shopping localStorage keys.
+- Добавлены lifecycle active/completed/archived, resume после reload, controlled debounce и pending-write feedback.
+- История получила карточки закупок, read-only просмотр и создание новой session без переноса статусов.
+- Улучшен мобильный shopping flow: крупный checkbox, сворачивание купленного, sticky summary/action.
+
 ## 2026-07-18 — repeat past week
 
 - В Истории добавлен выбор прошедшей непустой недели и preview переноса на текущую или будущую неделю.
