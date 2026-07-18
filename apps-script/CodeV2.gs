@@ -610,6 +610,10 @@ function cleanupSeedRows(payload) {
       isLegacyProductionSeedSelection_(row);
   }, dryRun);
 
+  summary.qaRows.mutation_requests = deleteRowsByPredicate_('mutation_requests', function (row) {
+    return startsQa_(cell_(row, 'request_id'));
+  }, dryRun);
+
   summary.duplicateSelectedDinners = dedupeRowsByKey_('selected_dinners', 'id', dryRun);
   Object.keys(summary.qaRows).forEach(function (name) {
     summary.deletedRows += summary.qaRows[name];
@@ -1054,11 +1058,11 @@ function norm_(value) {
 }
 
 function startsQa_(value) {
-  return /^QA-/i.test(trim_(value));
+  return /^(QA-|PILOT_TEST)/i.test(trim_(value));
 }
 
 function hasQaText_(value) {
-  return /QA smoke test/i.test(trim_(value));
+  return /(QA smoke test|PILOT_TEST)/i.test(trim_(value));
 }
 
 function isLegacyProductionSeedSelection_(row) {
