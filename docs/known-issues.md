@@ -8,6 +8,7 @@
 - Реальную конкуренцию и поведение lock можно проверить только Apps Script integration smoke на отдельной тестовой таблице.
 - Multi-user authorization остаётся вне scope.
 - `mutation_requests` хранит idempotency keys в Google Sheet. Запись бизнес-данных и ledger не являются общей транзакцией: редкий сбой между ними остаётся residual risk и должен проверяться integration smoke.
+- Integration smoke не выполнялся, поэтому конкурентность в реальном Apps Script окружении не подтверждена. Решение о merge принято для продолжения продуктовой разработки с принятием этого residual risk; перед полноценным multi-user или production-critical использованием обязательна повторная integration-проверка.
 
 ## P1 — конкурентная запись может повредить данные блюда (смягчено, требует integration smoke)
 
