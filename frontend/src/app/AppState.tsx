@@ -11,6 +11,7 @@ import { mockData } from '../data/mockData';
 import { ApiLockTimeoutError, ApiNetworkError, ApiResponseError, ApiTimeoutError } from '../services/apiErrors';
 import { createPendingWrite, markWriteAttempt, markWriteFailure, markWriteSynced, normalizePendingWrites, PendingWriteGuard, runWithSingleLockRetry } from '../services/pendingWrites';
 import type { PendingWrite, WriteAction } from '../services/pendingWrites';
+import type { RepeatDaySaveStatus } from '../services/repeatWeek';
 
 type SyncStatusType = 'loading' | 'cached' | 'refreshing' | 'fresh' | 'error' | 'local';
 type SaveStatusType = 'saving' | 'saved' | 'error' | 'local';
@@ -37,12 +38,13 @@ interface AppStateContextValue {
   syncStatus: SyncStatus;
   saveStatuses: Record<string, SaveStatus>;
   pendingWrites: PendingWrite[];
-  refresh: () => Promise<void>;
+  refresh: () => Promise<AppData | undefined>;
   retryPendingWrite: (id: string) => Promise<boolean>;
   retryPendingWrites: () => Promise<void>;
   discardPendingWrite: (id: string) => void;
   saveSelectedDinner: (selection: SelectedDinner) => Promise<boolean>;
   saveCalendarPlan: (row: CalendarPlanRow) => Promise<boolean>;
+  saveRepeatedDay: (selection: SelectedDinner, plan: CalendarPlanRow) => Promise<{ status: RepeatDaySaveStatus; detail?: string }>;
   saveShoppingSession: (session: ShoppingSession) => Promise<boolean>;
   saveDish: (dish: Dish) => Promise<boolean>;
   deactivateDish: (dishId: string) => Promise<boolean>;
@@ -348,7 +350,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           lastUpdated: updatedAt,
           liveRefreshMs,
         });
-        return;
+        return visibleData;
       }
       setSyncStatus(isGoogleSheetsDataSource
         ? {
@@ -358,6 +360,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           liveRefreshMs,
         }
         : { status: 'local', message: 'Работаем с локальными данными', liveRefreshMs });
+      return visibleData;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Не удалось загрузить данные';
       console.warn('[FamilyMenu] live refresh failed', err);
@@ -368,6 +371,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         lastUpdated: initialCache.cached?.meta?.updatedAt,
       });
       if (!hasDisplayedDataRef.current) setError(message);
+      return undefined;
     } finally {
       setLoading(false);
     }
@@ -410,6 +414,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     }));
     return executeWrite('saveCalendarPlan', row);
   }, [executeWrite, updateData]);
+
+  const saveRepeatedDay = useCallback(async (selection: SelectedDinner, plan: CalendarPlanRow) => {
+    const selectionSaved = await saveSelectedDinner(selection);
+    if (!selectionSaved) return repeatSaveFailure(pendingWritesRef.current, selectedDinnerWriteKey(selection.date), 'Выбор блюда не подтверждён сервером.');
+    const planSaved = await saveCalendarPlan(plan);
+    if (!planSaved) return repeatSaveFailure(pendingWritesRef.current, calendarPlanWriteKey(plan.date), 'Блюдо сохранено, но календарный план требует повтора.');
+    return { status: 'saved' as const };
+  }, [saveCalendarPlan, saveSelectedDinner]);
 
   const saveShoppingSession = useCallback(async (session: ShoppingSession) => {
     updateData((current) => ({
@@ -475,13 +487,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     discardPendingWrite,
     saveSelectedDinner,
     saveCalendarPlan,
+    saveRepeatedDay,
     saveShoppingSession,
     saveDish,
     deactivateDish,
     saveBaseProduct,
     deactivateBaseProduct,
     updateSettings,
-  }), [data, loading, error, syncStatus, saveStatuses, pendingWrites, refresh, retryPendingWrite, retryPendingWrites, discardPendingWrite, saveSelectedDinner, saveCalendarPlan, saveShoppingSession, saveDish, deactivateDish, saveBaseProduct, deactivateBaseProduct, updateSettings]);
+  }), [data, loading, error, syncStatus, saveStatuses, pendingWrites, refresh, retryPendingWrite, retryPendingWrites, discardPendingWrite, saveSelectedDinner, saveCalendarPlan, saveRepeatedDay, saveShoppingSession, saveDish, deactivateDish, saveBaseProduct, deactivateBaseProduct, updateSettings]);
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
 }
@@ -514,4 +527,11 @@ function saveStatusForError(error: unknown, updatedAt: string): SaveStatus {
     return { status: 'error', message: `Сервер отклонил изменение: ${error.message}`, updatedAt, error: error.message };
   }
   return { status: 'error', message: 'Не удалось сохранить изменение.', updatedAt, error: error instanceof Error ? error.message : undefined };
+}
+
+function repeatSaveFailure(writes: PendingWrite[], statusKey: string, detail: string): { status: RepeatDaySaveStatus; detail: string } {
+  const pending = writes.find((write) => write.statusKey === statusKey);
+  if (pending?.status === 'outcome_unknown') return { status: 'outcome_unknown', detail };
+  if (pending?.status === 'in_flight') return { status: 'pending', detail };
+  return { status: 'failed', detail };
 }

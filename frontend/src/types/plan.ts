@@ -19,7 +19,7 @@ export interface SelectedDinner {
   dayLabel: string;
   dishId: string;
   dishName: string;
-  source: 'option_a' | 'option_b' | 'quick' | 'random' | 'manual';
+  source: 'option_a' | 'option_b' | 'quick' | 'random' | 'manual' | 'repeated_week';
   status: PlanStatus;
   note?: string;
   createdAt: string;
