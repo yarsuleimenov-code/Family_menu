@@ -19,6 +19,7 @@ var LEGACY = {
 
 var APP_DATA_CACHE_KEY = 'familyMenu:getAppData:v1';
 var APP_DATA_CACHE_TTL_SECONDS = 180;
+var LOCK_WAIT_MS = 5000;
 var APP_DATA_CACHE_INVALIDATING_ACTIONS = {
   saveSelectedDinner: true,
   saveCalendarPlan: true,
@@ -29,6 +30,7 @@ var APP_DATA_CACHE_INVALIDATING_ACTIONS = {
   createBaseProduct: true,
   updateBaseProduct: true,
   deactivateBaseProduct: true,
+  updateSettings: true,
   importBackup: true,
   archiveTestData: true,
   deleteTestData: true,
@@ -43,6 +45,7 @@ function doPost(e) {
     checkToken_(body.token);
     var action = body.action;
     var payload = body.payload || {};
+    var requestId = trim_(body.requestId);
     var handlers = {
       getAppData: getAppData,
       getDishes: getDishes,
@@ -52,14 +55,14 @@ function doPost(e) {
       getShoppingSession: function () { return getShoppingSession(payload.sessionId); },
       getRecentSelections: function () { return getRecentSelections(payload.limit); },
       getSettings: getSettings,
-      saveSelectedDinner: function () { return saveSelectedDinner(payload); },
+      saveSelectedDinner: function () { return saveSelectedDinner(payload, requestId); },
       saveCalendarPlan: function () { return saveCalendarPlan(payload); },
-      saveShoppingSession: function () { return saveShoppingSession(payload); },
-      createDish: function () { return createDish(payload); },
-      updateDish: function () { return updateDish(payload); },
+      saveShoppingSession: function () { return saveShoppingSession(payload, requestId); },
+      createDish: function () { return createDish(payload, requestId); },
+      updateDish: function () { return updateDish(payload, requestId); },
       deactivateDish: function () { return deactivateDish(payload.dishId); },
-      createBaseProduct: function () { return createBaseProduct(payload); },
-      updateBaseProduct: function () { return updateBaseProduct(payload); },
+      createBaseProduct: function () { return createBaseProduct(payload, requestId); },
+      updateBaseProduct: function () { return updateBaseProduct(payload, requestId); },
       deactivateBaseProduct: function () { return deactivateBaseProduct(payload.productId); },
       updateSettings: function () { return updateSettings(payload); },
       buildShoppingList: function () { return buildShoppingList(payload.selectedDishes || [], payload.includeBaseProducts); },
@@ -70,10 +73,50 @@ function doPost(e) {
       migrateLegacyData: migrateLegacyData
     };
     if (!handlers[action]) throwUserError_('Unknown API action: ' + action);
-    var result = handlers[action]();
-    if (APP_DATA_CACHE_INVALIDATING_ACTIONS[action]) clearAppDataCache_();
-    return result;
+    if (!APP_DATA_CACHE_INVALIDATING_ACTIONS[action]) return handlers[action]();
+    validateMutationPayload_(action, payload, requestId);
+    return runMutation_(function () {
+      var result = handlers[action]();
+      return result;
+    });
   }));
+}
+
+function runMutation_(fn) {
+  return withMutationLock_(function () {
+    var result = fn();
+    clearAppDataCache_();
+    return result;
+  });
+}
+
+function withMutationLock_(fn) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(LOCK_WAIT_MS)) {
+    throwApiError_('LOCK_TIMEOUT', 'Данные сейчас обновляются другим запросом', true);
+  }
+  try {
+    return fn();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function validateMutationPayload_(action, payload, requestId) {
+  if (!payload || typeof payload !== 'object') throwApiError_('VALIDATION_ERROR', 'Некорректные данные запроса', false);
+  if ((action === 'saveSelectedDinner' || action === 'saveShoppingSession' || action === 'createDish' || action === 'updateDish' || action === 'createBaseProduct' || action === 'updateBaseProduct') && !requestId) {
+    throwApiError_('VALIDATION_ERROR', 'Отсутствует идентификатор mutation', false);
+  }
+  if (action === 'saveSelectedDinner' && (!payload.date || !payload.dishId)) throwApiError_('VALIDATION_ERROR', 'Для выбора ужина нужны date и dishId', false);
+  if (action === 'saveCalendarPlan' && !payload.date) throwApiError_('VALIDATION_ERROR', 'Для плана нужна date', false);
+  if (action === 'saveShoppingSession' && (!payload.dateFrom || !payload.dateTo)) throwApiError_('VALIDATION_ERROR', 'Для списка покупок нужен диапазон дат', false);
+  if ((action === 'createDish' || action === 'updateDish') && (!payload.dishName || !Array.isArray(payload.ingredients))) throwApiError_('VALIDATION_ERROR', 'Для блюда нужны название и ingredients', false);
+  if (action === 'createDish' || action === 'updateDish') {
+    payload.ingredients.forEach(function (ingredient) {
+      if (!ingredient || !ingredient.productName) throwApiError_('VALIDATION_ERROR', 'У ингредиента отсутствует название', false);
+    });
+  }
+  if ((action === 'createBaseProduct' || action === 'updateBaseProduct') && !payload.productName) throwApiError_('VALIDATION_ERROR', 'Для базового продукта нужно название', false);
 }
 
 function doGet() {
@@ -97,7 +140,6 @@ function getAppData() {
     return JSON.parse(cached);
   }
   console.log('[FamilyMenu] getAppData cache miss');
-  setupSheets();
   var data = readAppData_();
   try {
     cache.put(APP_DATA_CACHE_KEY, JSON.stringify(data), APP_DATA_CACHE_TTL_SECONDS);
@@ -109,7 +151,6 @@ function getAppData() {
 }
 
 function getDishes() {
-  setupSheets();
   return readDishes_();
 }
 
@@ -179,7 +220,6 @@ function getDishById(dishId) {
 }
 
 function getCalendarPlan() {
-  setupSheets();
   return readCalendarPlan_();
 }
 
@@ -201,7 +241,6 @@ function readCalendarPlan_() {
 }
 
 function getBaseProducts() {
-  setupSheets();
   return readBaseProducts_();
 }
 
@@ -225,14 +264,12 @@ function readBaseProducts_() {
 }
 
 function getShoppingSession(sessionId) {
-  setupSheets();
   var session = readShoppingSessions_(100).filter(function (item) { return item.sessionId === sessionId; })[0];
   if (!session) throwUserError_('Shopping session не найдена');
   return session;
 }
 
 function getRecentSelections(limit) {
-  setupSheets();
   return readRecentSelections_(limit);
 }
 
@@ -254,7 +291,6 @@ function readRecentSelections_(limit) {
 }
 
 function getSettings() {
-  setupSheets();
   return readSettings_();
 }
 
@@ -274,10 +310,11 @@ function readSettings_() {
   };
 }
 
-function saveSelectedDinner(payload) {
+function saveSelectedDinner(payload, requestId) {
   setupSheets();
-  appendByHeaders_('selected_dinners', {
-    id: payload.id || Utilities.getUuid(),
+  var id = payload.id || requestId;
+  upsertByKey_('selected_dinners', 'id', id, {
+    id: id,
     date: payload.date,
     day_label: payload.dayLabel,
     dish_id: payload.dishId,
@@ -288,7 +325,7 @@ function saveSelectedDinner(payload) {
     created_at: payload.createdAt || new Date().toISOString(),
     updated_at: new Date().toISOString()
   });
-  return payload;
+  return Object.assign({}, payload, { id: id });
 }
 
 function saveCalendarPlan(payload) {
@@ -308,10 +345,11 @@ function saveCalendarPlan(payload) {
   return payload;
 }
 
-function saveShoppingSession(payload) {
+function saveShoppingSession(payload, requestId) {
   setupSheets();
-  appendByHeaders_('shopping_sessions', {
-    session_id: payload.sessionId || Utilities.getUuid(),
+  var sessionId = payload.sessionId || requestId;
+  upsertByKey_('shopping_sessions', 'session_id', sessionId, {
+    session_id: sessionId,
     created_at: payload.createdAt || new Date().toISOString(),
     date_from: payload.dateFrom,
     date_to: payload.dateTo,
@@ -321,22 +359,25 @@ function saveShoppingSession(payload) {
     estimated_total: payload.estimatedTotal || 0,
     note: payload.note || ''
   });
-  return payload;
+  return Object.assign({}, payload, { sessionId: sessionId });
 }
 
-function createDish(payload) {
+function createDish(payload, requestId) {
   setupSheets();
+  payload.dishId = payload.dishId || requestId;
   upsertDish_(payload);
   return payload;
 }
 
-function updateDish(payload) {
+function updateDish(payload, requestId) {
   setupSheets();
+  payload.dishId = payload.dishId || requestId;
   upsertDish_(payload);
   return payload;
 }
 
 function deactivateDish(dishId) {
+  setupSheets();
   var dish = getDishById(dishId);
   dish.active = false;
   dish.updatedAt = new Date().toISOString();
@@ -344,19 +385,22 @@ function deactivateDish(dishId) {
   return { dishId: dishId };
 }
 
-function createBaseProduct(payload) {
+function createBaseProduct(payload, requestId) {
   setupSheets();
+  payload.productId = payload.productId || requestId;
   upsertBaseProduct_(payload);
   return payload;
 }
 
-function updateBaseProduct(payload) {
+function updateBaseProduct(payload, requestId) {
   setupSheets();
+  payload.productId = payload.productId || requestId;
   upsertBaseProduct_(payload);
   return payload;
 }
 
 function deactivateBaseProduct(productId) {
+  setupSheets();
   var product = getBaseProducts().filter(function (item) { return item.productId === productId; })[0];
   if (!product) throwUserError_('Базовый продукт не найден');
   product.active = false;
@@ -580,7 +624,26 @@ function migrateLegacyData() {
 }
 
 function upsertDish_(dish) {
-  upsertByKey_('dishes', 'dish_id', dish.dishId, {
+  var prepared = prepareDishRows_(dish);
+  var snapshot = snapshotDish_(dish.dishId);
+  try {
+    writePreparedDish_(prepared);
+  } catch (writeError) {
+    try {
+      restoreDishSnapshot_(dish.dishId, snapshot);
+    } catch (restoreError) {
+      console.error('[FamilyMenu] dish compensation failed for dish id only: ' + dish.dishId);
+      throwApiError_('PARTIAL_WRITE_RISK', 'Не удалось полностью восстановить блюдо после ошибки записи', false);
+    }
+    throw writeError;
+  }
+}
+
+function prepareDishRows_(dish) {
+  if (!dish.dishId || !dish.dishName || !Array.isArray(dish.ingredients)) {
+    throwApiError_('VALIDATION_ERROR', 'Некорректные данные блюда', false);
+  }
+  var dishRow = {
     dish_id: dish.dishId,
     dish_name: dish.dishName,
     category: dish.category,
@@ -596,10 +659,10 @@ function upsertDish_(dish) {
     active: dish.active ? 'yes' : 'no',
     created_at: dish.createdAt || new Date().toISOString(),
     updated_at: new Date().toISOString()
-  });
-  deleteRowsByKey_('dish_ingredients', 'dish_id', dish.dishId);
-  (dish.ingredients || []).forEach(function (ingredient) {
-    appendByHeaders_('dish_ingredients', {
+  };
+  var ingredientRows = dish.ingredients.map(function (ingredient) {
+    if (!ingredient.productName) throwApiError_('VALIDATION_ERROR', 'У ингредиента отсутствует название', false);
+    return {
       dish_id: dish.dishId,
       product_id: ingredient.productId || Utilities.getUuid(),
       product_name: ingredient.productName,
@@ -609,8 +672,26 @@ function upsertDish_(dish) {
       required_optional: ingredient.requiredOptional || 'required',
       replacement: ingredient.replacement || '',
       comment: ingredient.comment || ''
-    });
+    };
   });
+  return { dishId: dish.dishId, dishRow: dishRow, ingredientRows: ingredientRows };
+}
+
+function snapshotDish_(dishId) {
+  return {
+    dishRows: rowsByKey_('dishes', 'dish_id', dishId),
+    ingredientRows: rowsByKey_('dish_ingredients', 'dish_id', dishId)
+  };
+}
+
+function writePreparedDish_(prepared) {
+  upsertByKey_('dishes', 'dish_id', prepared.dishId, prepared.dishRow);
+  replaceRowsByKey_('dish_ingredients', 'dish_id', prepared.dishId, prepared.ingredientRows);
+}
+
+function restoreDishSnapshot_(dishId, snapshot) {
+  replaceRowsByKey_('dishes', 'dish_id', dishId, snapshot.dishRows);
+  replaceRowsByKey_('dish_ingredients', 'dish_id', dishId, snapshot.ingredientRows);
 }
 
 function upsertBaseProduct_(product) {
@@ -631,7 +712,6 @@ function upsertBaseProduct_(product) {
 }
 
 function getShoppingSessions_(limit) {
-  setupSheets();
   return readShoppingSessions_(limit);
 }
 
@@ -713,6 +793,29 @@ function appendByHeaders_(sheetName, values) {
   var sheet = ensureSheet_(sheetName, SHEETS[sheetName]);
   var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(trim_);
   sheet.appendRow(headers.map(function (header) { return values[header] === undefined ? '' : values[header]; }));
+}
+
+function rowsByKey_(sheetName, keyHeader, keyValue) {
+  return readRows_(sheetName).filter(function (row) {
+    return trim_(cell_(row, keyHeader)) === trim_(keyValue);
+  });
+}
+
+function replaceRowsByKey_(sheetName, keyHeader, keyValue, replacementRows) {
+  var sheet = ensureSheet_(sheetName, SHEETS[sheetName]);
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(trim_);
+  var keyIndex = headers.indexOf(keyHeader);
+  if (keyIndex < 0) throwUserError_('Missing key column: ' + keyHeader);
+  var currentValues = sheet.getDataRange().getValues();
+  var kept = currentValues.slice(1).filter(function (row) {
+    return trim_(row[keyIndex]) !== trim_(keyValue);
+  });
+  var replacements = (replacementRows || []).map(function (row) {
+    return headers.map(function (header) { return row[header] === undefined ? '' : row[header]; });
+  });
+  var nextValues = [headers].concat(kept, replacements);
+  sheet.clearContents();
+  sheet.getRange(1, 1, nextValues.length, headers.length).setValues(nextValues);
 }
 
 function upsertByKey_(sheetName, keyHeader, keyValue, values) {
@@ -902,8 +1005,15 @@ function safeRun_(fn) {
   try {
     return { ok: true, data: fn() };
   } catch (err) {
-    return { ok: false, error: err && err.userMessage ? err.userMessage : 'Ошибка обработки запроса' };
+    if (err && err.apiError) return { ok: false, error: err.apiError };
+    return { ok: false, error: { code: 'API_ERROR', message: err && err.userMessage ? err.userMessage : 'Ошибка обработки запроса', retryable: false } };
   }
+}
+
+function throwApiError_(code, message, retryable) {
+  var err = new Error(message);
+  err.apiError = { code: code, message: message, retryable: Boolean(retryable) };
+  throw err;
 }
 
 function throwUserError_(message) {
