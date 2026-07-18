@@ -5,18 +5,20 @@ interface ShoppingItemProps {
   item: ShoppingItemType;
   onStatusChange: (status: ShoppingItemStatus) => void;
   onRemove?: () => void;
+  readOnly?: boolean;
 }
 
-export function ShoppingItem({ item, onStatusChange, onRemove }: ShoppingItemProps) {
+export function ShoppingItem({ item, onStatusChange, onRemove, readOnly = false }: ShoppingItemProps) {
   return (
     <article className={`shopping-item shopping-item--${item.status}`}>
       <label className="shopping-item__check">
         <input
           type="checkbox"
-          checked={item.status === 'in_cart'}
-          onChange={(event) => onStatusChange(event.target.checked ? 'in_cart' : 'to_buy')}
+          disabled={readOnly}
+          checked={item.status === 'purchased'}
+          onChange={(event) => onStatusChange(event.target.checked ? 'purchased' : 'to_buy')}
         />
-        <span>В корзине</span>
+        <span>Куплено</span>
       </label>
       <div className="shopping-item__content">
         <div className="shopping-item__title">
@@ -30,9 +32,8 @@ export function ShoppingItem({ item, onStatusChange, onRemove }: ShoppingItemPro
         {item.comment ? <div className="muted">{item.comment}</div> : null}
         <div className="shopping-item__controls">
           <div className="status-actions" aria-label="Статус товара">
-            <button type="button" className={item.status === 'to_buy' ? 'selected-filter' : ''} onClick={() => onStatusChange('to_buy')}>Купить</button>
-            <button type="button" className={item.status === 'have_at_home' ? 'selected-filter' : ''} onClick={() => onStatusChange('have_at_home')}>Дома</button>
-            <button type="button" className={item.status === 'skip' ? 'selected-filter' : ''} onClick={() => onStatusChange('skip')}>Не покупать</button>
+            <button type="button" disabled={readOnly} className={item.status === 'to_buy' ? 'selected-filter' : ''} onClick={() => onStatusChange('to_buy')}>Купить</button>
+            <button type="button" disabled={readOnly} className={item.status === 'skipped' ? 'selected-filter' : ''} onClick={() => onStatusChange('skipped')}>Пропустить</button>
             {onRemove ? <button type="button" onClick={onRemove}>Убрать</button> : null}
           </div>
           <span>{formatTenge(item.estimatedPrice)}</span>

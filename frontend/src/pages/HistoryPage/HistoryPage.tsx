@@ -6,6 +6,7 @@ import { availablePastWeeks } from '../../services/repeatWeek';
 import { formatRuDate } from '../../utils/dates';
 import { todayIso } from '../../utils/dates';
 import { formatTenge } from '../../utils/budget';
+import { normalizeShoppingSession, sessionSummary } from '../../services/shoppingSessions';
 
 export function HistoryPage() {
   const { data, refresh, saveRepeatedDay } = useAppState();
@@ -55,12 +56,15 @@ export function HistoryPage() {
       <section className="section-block">
         <div className="section-title"><h2>Shopping sessions</h2><span>{data.shoppingSessions.length}</span></div>
         <div className="history-list">
-          {data.shoppingSessions.slice(0, 10).map((session) => (
-            <article key={session.sessionId} className="history-row">
-              <strong>{formatTenge(session.estimatedTotal)}</strong>
-              <span>{formatRuDate(session.dateFrom)} - {formatRuDate(session.dateTo)} · {session.shoppingList.length} поз.</span>
-            </article>
-          ))}
+          {data.shoppingSessions.slice(0, 10).map((rawSession) => {
+            const session = normalizeShoppingSession(rawSession);
+            const summary = sessionSummary(session);
+            return <article key={session.sessionId} className="history-row history-shopping-row">
+              <div><strong>{formatRuDate(session.createdAt)} · {session.status}</strong><span>{formatRuDate(session.dateFrom)}–{formatRuDate(session.dateTo)} · {summary.total} поз. · куплено {summary.purchased} · {formatTenge(summary.estimatedTotal)}</span></div>
+              <div className="history-row__actions"><Link to={`/shopping?session=${session.sessionId}`}>Открыть</Link><Link to={`/shopping?copy=${session.sessionId}`}>Повторить без статусов</Link></div>
+            </article>;
+          })}
+          {!data.shoppingSessions.length ? <div className="empty-state">Завершённые и архивные закупки появятся здесь.</div> : null}
         </div>
       </section>
 

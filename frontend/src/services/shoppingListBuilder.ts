@@ -23,6 +23,7 @@ export function buildShoppingList(
     dish.ingredients.forEach((ingredient) => {
       const priceSource = priceByProduct.get(normalizeKey(ingredient.productName));
       addItem(merged, {
+        itemId: '',
         key: normalizeKey(ingredient.productName),
         productId: ingredient.productId,
         productName: ingredient.productName,
@@ -42,6 +43,7 @@ export function buildShoppingList(
   if (includeBaseProducts) {
     baseProducts.filter((product) => product.active && product.includeByDefault).forEach((product) => {
       addItem(merged, {
+        itemId: '',
         key: normalizeKey(product.productName),
         productId: product.productId,
         productName: product.productName,

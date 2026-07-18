@@ -426,7 +426,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const saveShoppingSession = useCallback(async (session: ShoppingSession) => {
     updateData((current) => ({
       ...current,
-      shoppingSessions: [session, ...current.shoppingSessions].slice(0, 20),
+      shoppingSessions: [session, ...current.shoppingSessions.filter((item) => item.sessionId !== session.sessionId)].slice(0, 20),
     }));
     return executeWrite('saveShoppingSession', session);
   }, [executeWrite, updateData]);

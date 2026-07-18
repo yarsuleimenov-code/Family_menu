@@ -55,7 +55,7 @@ const localApi: DataApi = {
   },
   async saveShoppingSession(payload) {
     const data = readLocalData();
-    data.shoppingSessions = [payload, ...data.shoppingSessions].slice(0, 20);
+    data.shoppingSessions = [payload, ...data.shoppingSessions.filter((item) => item.sessionId !== payload.sessionId)].slice(0, 20);
     writeLocalData(data);
     return payload;
   },
