@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Shuffle } from 'lucide-react';
 import { DishCard } from '../../components/DishCard/DishCard';
 import { calendarPlanWriteKey, selectedDinnerWriteKey, useAppState } from '../../app/AppState';
@@ -11,9 +11,12 @@ import { hasForbiddenProducts, randomDish } from '../../services/randomDish';
 const AUTO_DINNER_KEY_PREFIX = 'familyMenu.autoDinner.v1:';
 
 export function PlanPage() {
+  const [searchParams] = useSearchParams();
+  const requestedDate = searchParams.get('date');
+  const initialDate = requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : todayIso();
   const { data, saveSelectedDinner, saveCalendarPlan, saveStatuses, pendingWrites, retryPendingWrite, discardPendingWrite } = useAppState();
-  const [date, setDate] = useState(todayIso());
-  const [rangeTo, setRangeTo] = useState(addDays(todayIso(), 6));
+  const [date, setDate] = useState(initialDate);
+  const [rangeTo, setRangeTo] = useState(addDays(initialDate, 6));
   const [filters, setFilters] = useState<DishFilters>({});
   const [randomResult, setRandomResult] = useState<string>();
   const [autoDinnerMessage, setAutoDinnerMessage] = useState<string>();

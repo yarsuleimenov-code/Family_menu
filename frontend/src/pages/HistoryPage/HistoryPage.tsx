@@ -1,10 +1,17 @@
-import { Link } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAppState } from '../../app/AppState';
+import { RepeatWeekDialog } from '../../components/RepeatWeekDialog/RepeatWeekDialog';
+import { availablePastWeeks } from '../../services/repeatWeek';
 import { formatRuDate } from '../../utils/dates';
+import { todayIso } from '../../utils/dates';
 import { formatTenge } from '../../utils/budget';
 
 export function HistoryPage() {
-  const { data } = useAppState();
+  const { data, refresh, saveRepeatedDay } = useAppState();
+  const navigate = useNavigate();
+  const [repeatSourceWeek, setRepeatSourceWeek] = useState<string>();
+  const pastWeeks = useMemo(() => availablePastWeeks(data.selectedDinners, todayIso()), [data.selectedDinners]);
   return (
     <section className="page">
       <div className="page-heading">
@@ -14,6 +21,23 @@ export function HistoryPage() {
         </div>
         <Link className="primary compact-link" to="/settings">Настройки</Link>
       </div>
+
+      <section className="section-block">
+        <div className="section-title"><h2>Прошлые недели</h2><span>{pastWeeks.length}</span></div>
+        {pastWeeks.length ? (
+          <div className="history-list">
+            {pastWeeks.map((week) => (
+              <article key={week.weekStart} className="history-row history-week-row">
+                <div>
+                  <strong>{formatRuDate(week.weekStart)}–{formatRuDate(week.weekEnd)}</strong>
+                  <span>{week.plannedCount} запланированных блюд</span>
+                </div>
+                <button type="button" className="primary" onClick={() => setRepeatSourceWeek(week.weekStart)}>Повторить неделю</button>
+              </article>
+            ))}
+          </div>
+        ) : <div className="empty-state">Нет завершённых недель с блюдами. Сначала составьте план хотя бы на один день.</div>}
+      </section>
 
       <section className="section-block">
         <div className="section-title"><h2>Последние ужины</h2><span>{data.selectedDinners.length}</span></div>
@@ -39,6 +63,18 @@ export function HistoryPage() {
           ))}
         </div>
       </section>
+
+      {repeatSourceWeek ? (
+        <RepeatWeekDialog
+          initialSourceWeek={repeatSourceWeek}
+          pastWeeks={pastWeeks}
+          selections={data.selectedDinners}
+          refresh={refresh}
+          saveRepeatedDay={saveRepeatedDay}
+          onClose={() => setRepeatSourceWeek(undefined)}
+          onOpenPlan={(targetWeek) => navigate(`/plan?date=${targetWeek}`)}
+        />
+      ) : null}
     </section>
   );
 }
