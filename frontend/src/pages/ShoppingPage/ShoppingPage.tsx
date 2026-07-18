@@ -22,7 +22,7 @@ interface ManualShoppingItem {
 }
 
 export function ShoppingPage() {
-  const { data, saveShoppingSession, saveStatuses, pendingWrites, retryPendingWrites } = useAppState();
+  const { data, saveShoppingSession, saveStatuses, pendingWrites, retryPendingWrite, discardPendingWrite } = useAppState();
   const [dateFrom, setDateFrom] = useState(todayIso());
   const [dateTo, setDateTo] = useState(addDays(todayIso(), 6));
   const [includeBase, setIncludeBase] = useState(true);
@@ -194,7 +194,13 @@ export function ShoppingPage() {
       {sessionSaveStatus ? (
         <div className={`save-status save-status--${sessionSaveStatus.status}`}>
           <span>{sessionSaveStatus.message}</span>
-          {sessionPendingWrites.length ? <button type="button" onClick={() => void retryPendingWrites()}>Повторить</button> : null}
+          {sessionPendingWrites.map((write) => (
+            <span className="pending-write-actions" key={write.id}>
+              <span>{write.status === 'expired' ? 'Срок ожидания истёк.' : write.status === 'outcome_unknown' ? 'Результат неизвестен.' : null}</span>
+              {write.status !== 'in_flight' && write.status !== 'expired' ? <button type="button" onClick={() => void retryPendingWrite(write.id)}>Повторить</button> : null}
+              {write.status !== 'in_flight' ? <button type="button" onClick={() => discardPendingWrite(write.id)}>Удалить</button> : null}
+            </span>
+          ))}
         </div>
       ) : null}
 

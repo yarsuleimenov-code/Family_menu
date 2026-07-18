@@ -7,6 +7,7 @@ import type { AppSettings } from '../types/settings';
 import { mockData } from '../data/mockData';
 import { readStorage, writeStorage } from './storage';
 import { googleSheetsApi } from './googleSheetsApi';
+import type { MutationOptions } from './googleSheetsApi';
 
 const APP_DATA_KEY = 'app-data';
 const dataSource = import.meta.env.VITE_DATA_SOURCE as string | undefined;
@@ -14,16 +15,16 @@ export const isGoogleSheetsDataSource = dataSource === 'googleSheets';
 
 export interface DataApi {
   getAppData(): Promise<AppData>;
-  saveSelectedDinner(payload: SelectedDinner): Promise<SelectedDinner>;
-  saveCalendarPlan(payload: CalendarPlanRow): Promise<CalendarPlanRow>;
-  saveShoppingSession(payload: ShoppingSession): Promise<ShoppingSession>;
-  createDish(payload: Dish): Promise<Dish>;
-  updateDish(payload: Dish): Promise<Dish>;
-  deactivateDish(payload: { dishId: string }): Promise<{ dishId: string }>;
-  createBaseProduct(payload: BaseProduct): Promise<BaseProduct>;
-  updateBaseProduct(payload: BaseProduct): Promise<BaseProduct>;
-  deactivateBaseProduct(payload: { productId: string }): Promise<{ productId: string }>;
-  updateSettings(payload: AppSettings): Promise<AppSettings>;
+  saveSelectedDinner(payload: SelectedDinner, options: MutationOptions): Promise<SelectedDinner>;
+  saveCalendarPlan(payload: CalendarPlanRow, options: MutationOptions): Promise<CalendarPlanRow>;
+  saveShoppingSession(payload: ShoppingSession, options: MutationOptions): Promise<ShoppingSession>;
+  createDish(payload: Dish, options: MutationOptions): Promise<Dish>;
+  updateDish(payload: Dish, options: MutationOptions): Promise<Dish>;
+  deactivateDish(payload: { dishId: string }, options: MutationOptions): Promise<{ dishId: string }>;
+  createBaseProduct(payload: BaseProduct, options: MutationOptions): Promise<BaseProduct>;
+  updateBaseProduct(payload: BaseProduct, options: MutationOptions): Promise<BaseProduct>;
+  deactivateBaseProduct(payload: { productId: string }, options: MutationOptions): Promise<{ productId: string }>;
+  updateSettings(payload: AppSettings, options: MutationOptions): Promise<AppSettings>;
 }
 
 function readLocalData(): AppData {

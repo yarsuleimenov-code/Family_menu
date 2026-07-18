@@ -849,6 +849,13 @@ textarea {
   text-align: right;
 }
 
+.pending-write-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
 .product-card__actions {
   display: flex;
   gap: 8px;

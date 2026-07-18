@@ -11,7 +11,7 @@ import { hasForbiddenProducts, randomDish } from '../../services/randomDish';
 const AUTO_DINNER_KEY_PREFIX = 'familyMenu.autoDinner.v1:';
 
 export function PlanPage() {
-  const { data, saveSelectedDinner, saveCalendarPlan, saveStatuses, pendingWrites, retryPendingWrites } = useAppState();
+  const { data, saveSelectedDinner, saveCalendarPlan, saveStatuses, pendingWrites, retryPendingWrite, discardPendingWrite } = useAppState();
   const [date, setDate] = useState(todayIso());
   const [rangeTo, setRangeTo] = useState(addDays(todayIso(), 6));
   const [filters, setFilters] = useState<DishFilters>({});
@@ -200,7 +200,13 @@ export function PlanPage() {
       {saveNotice ? (
         <div className={`save-status save-status--${saveNotice.kind}`}>
           <span>{saveNotice.message}</span>
-          {datePendingWrites.length ? <button type="button" onClick={() => void retryPendingWrites()}>Повторить</button> : null}
+          {datePendingWrites.map((write) => (
+            <span className="pending-write-actions" key={write.id}>
+              <span>{write.status === 'expired' ? 'Срок ожидания истёк.' : write.status === 'outcome_unknown' ? 'Результат неизвестен.' : null}</span>
+              {write.status !== 'in_flight' && write.status !== 'expired' ? <button type="button" onClick={() => void retryPendingWrite(write.id)}>Повторить</button> : null}
+              {write.status !== 'in_flight' ? <button type="button" onClick={() => discardPendingWrite(write.id)}>Удалить</button> : null}
+            </span>
+          ))}
         </div>
       ) : null}
 
