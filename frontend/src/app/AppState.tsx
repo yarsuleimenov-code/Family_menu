@@ -8,21 +8,12 @@ import type { AppSettings } from '../types/settings';
 import { api, isGoogleSheetsDataSource } from '../services/api';
 import { readAppDataCache, writeAppDataCache } from '../services/appDataCache';
 import { mockData } from '../data/mockData';
+import { ApiLockTimeoutError, ApiNetworkError, ApiResponseError, ApiTimeoutError } from '../services/apiErrors';
+import { createPendingWrite, markWriteAttempt, markWriteFailure, markWriteSynced, normalizePendingWrites, PendingWriteGuard, runWithSingleLockRetry } from '../services/pendingWrites';
+import type { PendingWrite, WriteAction } from '../services/pendingWrites';
 
 type SyncStatusType = 'loading' | 'cached' | 'refreshing' | 'fresh' | 'error' | 'local';
 type SaveStatusType = 'saving' | 'saved' | 'error' | 'local';
-type WriteAction =
-  | 'saveSelectedDinner'
-  | 'saveCalendarPlan'
-  | 'saveShoppingSession'
-  | 'createDish'
-  | 'updateDish'
-  | 'deactivateDish'
-  | 'createBaseProduct'
-  | 'updateBaseProduct'
-  | 'deactivateBaseProduct'
-  | 'updateSettings';
-
 export interface SyncStatus {
   status: SyncStatusType;
   message: string;
@@ -39,16 +30,6 @@ export interface SaveStatus {
   error?: string;
 }
 
-export interface PendingWrite {
-  id: string;
-  statusKey: string;
-  action: WriteAction;
-  payload: unknown;
-  createdAt: string;
-  updatedAt: string;
-  error?: string;
-}
-
 interface AppStateContextValue {
   data: AppData;
   loading: boolean;
@@ -59,6 +40,7 @@ interface AppStateContextValue {
   refresh: () => Promise<void>;
   retryPendingWrite: (id: string) => Promise<boolean>;
   retryPendingWrites: () => Promise<void>;
+  discardPendingWrite: (id: string) => void;
   saveSelectedDinner: (selection: SelectedDinner) => Promise<boolean>;
   saveCalendarPlan: (row: CalendarPlanRow) => Promise<boolean>;
   saveShoppingSession: (session: ShoppingSession) => Promise<boolean>;
@@ -95,7 +77,7 @@ function formatTime(value: string): string {
 function readPendingWrites(): PendingWrite[] {
   try {
     const raw = localStorage.getItem(PENDING_WRITES_KEY);
-    return raw ? (JSON.parse(raw) as PendingWrite[]) : [];
+    return raw ? normalizePendingWrites(JSON.parse(raw)) : [];
   } catch {
     return [];
   }
@@ -109,15 +91,22 @@ function writePendingWrites(writes: PendingWrite[]): void {
   }
 }
 
-function writeId(action: WriteAction, payload: unknown): string {
-  return `${action}:${JSON.stringify(payload)}`;
-}
-
 function statusKeyFor(action: WriteAction, payload: unknown): string {
   if (action === 'saveSelectedDinner') return selectedDinnerWriteKey((payload as SelectedDinner).date);
   if (action === 'saveCalendarPlan') return calendarPlanWriteKey((payload as CalendarPlanRow).date);
   if (action === 'saveShoppingSession') return shoppingSessionWriteKey((payload as ShoppingSession).sessionId);
-  return `${action}:${writeId(action, payload)}`;
+  return `${action}:${JSON.stringify(payload)}`;
+}
+
+function operationKeyFor(action: WriteAction, payload: unknown): string {
+  if (action === 'saveSelectedDinner' || action === 'saveCalendarPlan') return `${action}:${(payload as { date: string }).date}`;
+  if (action === 'saveShoppingSession') {
+    const session = payload as ShoppingSession;
+    return `${action}:${session.dateFrom}:${session.dateTo}`;
+  }
+  if (action === 'createDish' || action === 'updateDish' || action === 'deactivateDish') return `dish:${(payload as { dishId: string }).dishId}`;
+  if (action === 'createBaseProduct' || action === 'updateBaseProduct' || action === 'deactivateBaseProduct') return `product:${(payload as { productId: string }).productId}`;
+  return action;
 }
 
 function applyPendingWritesToData(data: AppData, writes: PendingWrite[]): AppData {
@@ -195,13 +184,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string>();
   const [pendingWrites, setPendingWrites] = useState<PendingWrite[]>(readPendingWrites);
   const pendingWritesRef = useRef<PendingWrite[]>(pendingWrites);
+  const writeGuardRef = useRef(new PendingWriteGuard());
   const [saveStatuses, setSaveStatuses] = useState<Record<string, SaveStatus>>(() => {
     const now = new Date().toISOString();
     return Object.fromEntries(readPendingWrites().map((write) => [
       write.statusKey,
       {
-        status: 'local' as const,
-        message: 'Работаем с локальными данными',
+        status: write.status === 'in_flight' ? 'saving' as const : 'local' as const,
+        message: pendingWriteMessage(write),
         updatedAt: write.updatedAt || now,
         error: write.error,
       },
@@ -238,6 +228,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     pendingWritesRef.current = pendingWrites;
+    writePendingWrites(pendingWrites);
   }, [pendingWrites]);
 
   const updatePendingWrites = useCallback((updater: (current: PendingWrite[]) => PendingWrite[]) => {
@@ -249,98 +240,86 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const performApiWrite = useCallback((action: WriteAction, payload: unknown): Promise<unknown> => {
+  const performApiWrite = useCallback((action: WriteAction, payload: unknown, requestId: string): Promise<unknown> => {
+    const options = { requestId };
     switch (action) {
       case 'saveSelectedDinner':
-        return api.saveSelectedDinner(payload as SelectedDinner);
+        return api.saveSelectedDinner(payload as SelectedDinner, options);
       case 'saveCalendarPlan':
-        return api.saveCalendarPlan(payload as CalendarPlanRow);
+        return api.saveCalendarPlan(payload as CalendarPlanRow, options);
       case 'saveShoppingSession':
-        return api.saveShoppingSession(payload as ShoppingSession);
+        return api.saveShoppingSession(payload as ShoppingSession, options);
       case 'createDish':
-        return api.createDish(payload as Dish);
+        return api.createDish(payload as Dish, options);
       case 'updateDish':
-        return api.updateDish(payload as Dish);
+        return api.updateDish(payload as Dish, options);
       case 'deactivateDish':
-        return api.deactivateDish(payload as { dishId: string });
+        return api.deactivateDish(payload as { dishId: string }, options);
       case 'createBaseProduct':
-        return api.createBaseProduct(payload as BaseProduct);
+        return api.createBaseProduct(payload as BaseProduct, options);
       case 'updateBaseProduct':
-        return api.updateBaseProduct(payload as BaseProduct);
+        return api.updateBaseProduct(payload as BaseProduct, options);
       case 'deactivateBaseProduct':
-        return api.deactivateBaseProduct(payload as { productId: string });
+        return api.deactivateBaseProduct(payload as { productId: string }, options);
       case 'updateSettings':
-        return api.updateSettings(payload as AppSettings);
+        return api.updateSettings(payload as AppSettings, options);
     }
   }, []);
 
-  const executeWrite = useCallback(async (action: WriteAction, payload: unknown): Promise<boolean> => {
-    const id = writeId(action, payload);
-    const statusKey = statusKeyFor(action, payload);
-    const startedAt = new Date().toISOString();
-    setSaveStatuses((current) => ({
-      ...current,
-      [statusKey]: { status: 'saving', message: 'Сохраняем...', updatedAt: startedAt },
-    }));
-    setSyncStatus((current) => ({
-      ...current,
-      status: current.status === 'local' ? 'local' : current.status,
-      message: current.status === 'local' ? current.message : 'Сохраняем...',
-    }));
+  const executeWrite = useCallback(async (action: WriteAction, payload: unknown, existing?: PendingWrite): Promise<boolean> => {
+    const pending = existing ?? createPendingWrite(action, payload, statusKeyFor(action, payload));
+    const operationKey = operationKeyFor(action, payload);
+    if (pending.status === 'expired' || !writeGuardRef.current.begin(pending.id, operationKey)) return false;
+    let currentWrite = pending;
+    updatePendingWrites((current) => [currentWrite, ...current.filter((write) => write.id !== currentWrite.id)]);
     try {
-      await performApiWrite(action, payload);
+      const sendAttempt = async () => {
+        currentWrite = markWriteAttempt(currentWrite);
+        updatePendingWrites((current) => [currentWrite, ...current.filter((write) => write.id !== currentWrite.id)]);
+        setSaveStatuses((current) => ({
+          ...current,
+          [currentWrite.statusKey]: { status: 'saving', message: 'Сохраняем...', updatedAt: currentWrite.updatedAt },
+        }));
+        return performApiWrite(action, payload, currentWrite.id);
+      };
+      try {
+        await runWithSingleLockRetry(sendAttempt, (error) => {
+          const failedWrite = markWriteFailure(currentWrite, error);
+          currentWrite = { ...failedWrite, lockRetryCount: currentWrite.lockRetryCount + 1 };
+          updatePendingWrites((current) => [currentWrite, ...current.filter((write) => write.id !== currentWrite.id)]);
+        });
+      } catch (error) {
+        currentWrite = markWriteFailure(currentWrite, error);
+        updatePendingWrites((current) => [currentWrite, ...current.filter((write) => write.id !== currentWrite.id)]);
+        const status = saveStatusForError(error, currentWrite.updatedAt);
+        setSaveStatuses((current) => ({ ...current, [currentWrite.statusKey]: status }));
+        setSyncStatus({
+          status: 'error',
+          message: currentWrite.status === 'outcome_unknown' ? 'Результат сохранения неизвестен' : 'Есть локальные изменения',
+          detail: status.message,
+          lastUpdated: currentWrite.updatedAt,
+        });
+        return false;
+      }
+
       const updatedAt = new Date().toISOString();
-      const remainingWrites = pendingWritesRef.current.filter((write) => write.id !== id);
+      currentWrite = markWriteSynced(currentWrite, new Date(updatedAt));
+      const remainingWrites = pendingWritesRef.current.filter((write) => write.id !== currentWrite.id);
       updatePendingWrites(() => remainingWrites);
       setSaveStatuses((current) => ({
         ...current,
-        [statusKey]: { status: 'saved', message: 'Сохранено', updatedAt },
+        [currentWrite.statusKey]: { status: 'saved', message: 'Сохранено на сервере', updatedAt },
       }));
-      if (remainingWrites.length) {
-        setSyncStatus({
-          status: 'error',
-          message: 'Есть локальные изменения',
-          detail: 'Часть записей ещё не сохранена в Google Sheets. Можно повторить сохранение.',
-          lastUpdated: updatedAt,
-        });
-      } else {
-        setSyncStatus((current) => ({
-          ...current,
-          status: current.status === 'local' ? 'local' : 'fresh',
-          message: current.status === 'local' ? current.message : `Сохранено ${formatTime(updatedAt)}`,
-          lastUpdated: updatedAt,
-        }));
-      }
-      return true;
-    } catch (err) {
-      const error = err instanceof Error ? err.message : 'Не удалось сохранить';
-      const updatedAt = new Date().toISOString();
-      const pending: PendingWrite = {
-        id,
-        statusKey,
-        action,
-        payload,
-        createdAt: startedAt,
-        updatedAt,
-        error,
-      };
-      updatePendingWrites((current) => [pending, ...current.filter((write) => write.id !== id)]);
-      setSaveStatuses((current) => ({
-        ...current,
-        [statusKey]: {
-          status: 'error',
-          message: 'Ошибка сохранения',
-          updatedAt,
-          error,
-        },
-      }));
-      setSyncStatus({
-        status: 'error',
-        message: 'Есть локальные изменения',
-        detail: 'Не удалось сохранить в Google Sheets. Данные остались локально, можно повторить.',
+      setSyncStatus(remainingWrites.length ? {
+        status: 'error', message: 'Есть локальные изменения', detail: 'Часть записей ещё не синхронизирована.', lastUpdated: updatedAt,
+      } : {
+        status: isGoogleSheetsDataSource ? 'fresh' : 'local',
+        message: isGoogleSheetsDataSource ? `Сохранено ${formatTime(updatedAt)}` : 'Работаем с локальными данными',
         lastUpdated: updatedAt,
       });
-      return false;
+      return true;
+    } finally {
+      writeGuardRef.current.end(pending.id, operationKey);
     }
   }, [performApiWrite, updatePendingWrites]);
 
@@ -401,15 +380,20 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const retryPendingWrite = useCallback(async (id: string): Promise<boolean> => {
     const pending = pendingWritesRef.current.find((write) => write.id === id);
     if (!pending) return true;
-    return executeWrite(pending.action, pending.payload);
+    return executeWrite(pending.action, pending.payload, pending);
   }, [executeWrite]);
 
   const retryPendingWrites = useCallback(async () => {
     const writes = [...pendingWritesRef.current];
     for (const write of writes) {
-      await executeWrite(write.action, write.payload);
+      if (write.status !== 'expired') await executeWrite(write.action, write.payload, write);
     }
   }, [executeWrite]);
+
+  const discardPendingWrite = useCallback((id: string) => {
+    if (writeGuardRef.current.isActive(id)) return;
+    updatePendingWrites((current) => current.filter((write) => write.id !== id));
+  }, [updatePendingWrites]);
 
   const saveSelectedDinner = useCallback(async (selection: SelectedDinner) => {
     updateData((current) => ({
@@ -488,6 +472,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     refresh,
     retryPendingWrite,
     retryPendingWrites,
+    discardPendingWrite,
     saveSelectedDinner,
     saveCalendarPlan,
     saveShoppingSession,
@@ -496,7 +481,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     saveBaseProduct,
     deactivateBaseProduct,
     updateSettings,
-  }), [data, loading, error, syncStatus, saveStatuses, pendingWrites, refresh, retryPendingWrite, retryPendingWrites, saveSelectedDinner, saveCalendarPlan, saveShoppingSession, saveDish, deactivateDish, saveBaseProduct, deactivateBaseProduct, updateSettings]);
+  }), [data, loading, error, syncStatus, saveStatuses, pendingWrites, refresh, retryPendingWrite, retryPendingWrites, discardPendingWrite, saveSelectedDinner, saveCalendarPlan, saveShoppingSession, saveDish, deactivateDish, saveBaseProduct, deactivateBaseProduct, updateSettings]);
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
 }
@@ -505,4 +490,28 @@ export function useAppState(): AppStateContextValue {
   const context = useContext(AppStateContext);
   if (!context) throw new Error('useAppState must be used inside AppStateProvider');
   return context;
+}
+
+function pendingWriteMessage(write: PendingWrite): string {
+  if (write.status === 'expired') return 'Локальное изменение старше 30 дней. Повторите или удалите его вручную.';
+  if (write.status === 'outcome_unknown') return 'Ответ сервера не получен. Результат сохранения неизвестен.';
+  if (write.status === 'retryable_lock') return 'Данные обновляются другим пользователем. Можно повторить.';
+  if (write.status === 'failed') return write.error || 'Изменение не синхронизировано.';
+  return 'Сохраняем...';
+}
+
+function saveStatusForError(error: unknown, updatedAt: string): SaveStatus {
+  if (error instanceof ApiTimeoutError) {
+    return { status: 'error', message: 'Сервер не ответил. Результат сохранения неизвестен.', updatedAt, error: error.message };
+  }
+  if (error instanceof ApiNetworkError) {
+    return { status: 'error', message: 'Связь прервана. Результат сохранения неизвестен.', updatedAt, error: error.message };
+  }
+  if (error instanceof ApiLockTimeoutError) {
+    return { status: 'error', message: 'Данные обновляются другим пользователем. Повторите позже.', updatedAt, error: error.message };
+  }
+  if (error instanceof ApiResponseError) {
+    return { status: 'error', message: `Сервер отклонил изменение: ${error.message}`, updatedAt, error: error.message };
+  }
+  return { status: 'error', message: 'Не удалось сохранить изменение.', updatedAt, error: error instanceof Error ? error.message : undefined };
 }

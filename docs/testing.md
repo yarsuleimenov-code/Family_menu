@@ -6,9 +6,22 @@
 
 ```powershell
 pnpm run typecheck
+pnpm run test:run
 pnpm run build
 pnpm run build:pages
 ```
+
+## Первая техническая итерация 2026-07-18
+
+- Vitest покрывает shopping list, random dish, нормализацию строк и дат, API timeout/network/protocol/API errors, `LOCK_TIMEOUT`, единственный автоматический retry, запрет retry при неизвестном результате, UUID и expiration pending writes.
+- VM-тесты Apps Script покрывают `tryLock(5000)`, освобождение lock, cache invalidation после success, idempotency keys, компенсационное восстановление и `PARTIAL_WRITE_RISK`.
+- Локальные unit-тесты не доказывают справедливость очереди `LockService`, реальное время ожидания и взаимное исключение параллельных Apps Script executions. Для этого нужен integration smoke на отдельной тестовой Google Sheet.
+- Production Google Sheet, live CRUD и deployment в этой итерации не выполнялись.
+
+## Senior review PR #4
+
+- Regression coverage расширено до idempotency conflict, сохранённого server-side request key, read endpoints без sheet mutations, caller-abort race, логического запрета повторного клика, legacy pending schema и сохранения неизвестных колонок/позиции соседних строк.
+- Idempotency ledger проверяется локально через VM fixture; долговечность и конкурентный доступ к нему требуют integration smoke.
 
 Live smoke-команды и необходимые переменные описаны в `README.md`. Они изменяют рабочую Google Sheet и запускаются только осознанно.
 
