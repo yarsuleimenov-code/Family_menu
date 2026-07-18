@@ -1,5 +1,11 @@
 # Agent handoff
 
+## Функциональная ветка repeat past week
+
+- Ветка `codex/repeat-past-week` реализует История → Повторить неделю → preview → последовательное сохранение → переход в План.
+- Новая backend-модель и batch endpoint не добавлялись; используются `SelectedDinner`, `CalendarPlanRow` и существующие pending writes.
+- Перед каждой серией mutations выполняется refresh целевой недели. При ошибке или неизвестном результате dialog остаётся открытым.
+
 ## Текущее состояние после первой технической итерации
 
 - Audit PR #3 squash-merged в `main`: `6c1bc1434f9140cfb02a8ced50efacdd1e6d8a50`.
