@@ -5,7 +5,8 @@ var SHEETS = {
   base_products: ['product_id', 'product_name', 'category', 'default_quantity', 'unit', 'price_per_unit', 'estimated_package_price', 'store_note', 'buy_fresh_or_store', 'include_by_default', 'active', 'updated_at'],
   shopping_sessions: ['session_id', 'created_at', 'date_from', 'date_to', 'selected_dishes_json', 'include_base_products', 'shopping_list_json', 'estimated_total', 'note'],
   selected_dinners: ['id', 'date', 'day_label', 'dish_id', 'dish_name', 'source', 'status', 'note', 'created_at', 'updated_at'],
-  settings: ['key', 'value', 'comment', 'updated_at']
+  settings: ['key', 'value', 'comment', 'updated_at'],
+  mutation_requests: ['request_id', 'action', 'payload_hash', 'response_json', 'created_at']
 };
 
 var LEGACY = {
@@ -20,6 +21,14 @@ var LEGACY = {
 var APP_DATA_CACHE_KEY = 'familyMenu:getAppData:v1';
 var APP_DATA_CACHE_TTL_SECONDS = 180;
 var LOCK_WAIT_MS = 5000;
+var IDEMPOTENT_ACTIONS = {
+  saveSelectedDinner: true,
+  saveShoppingSession: true,
+  createDish: true,
+  updateDish: true,
+  createBaseProduct: true,
+  updateBaseProduct: true
+};
 var APP_DATA_CACHE_INVALIDATING_ACTIONS = {
   saveSelectedDinner: true,
   saveCalendarPlan: true,
@@ -76,8 +85,7 @@ function doPost(e) {
     if (!APP_DATA_CACHE_INVALIDATING_ACTIONS[action]) return handlers[action]();
     validateMutationPayload_(action, payload, requestId);
     return runMutation_(function () {
-      var result = handlers[action]();
-      return result;
+      return executeIdempotentMutation_(action, requestId, payload, handlers[action]);
     });
   }));
 }
@@ -117,6 +125,51 @@ function validateMutationPayload_(action, payload, requestId) {
     });
   }
   if ((action === 'createBaseProduct' || action === 'updateBaseProduct') && !payload.productName) throwApiError_('VALIDATION_ERROR', 'Для базового продукта нужно название', false);
+}
+
+function executeIdempotentMutation_(action, requestId, payload, handler) {
+  if (!IDEMPOTENT_ACTIONS[action]) return handler();
+  var payloadHash = hashPayload_(payload);
+  var existing = readRows_('mutation_requests').filter(function (row) {
+    return cell_(row, 'request_id') === requestId;
+  })[0];
+  if (existing) {
+    if (cell_(existing, 'action') !== action || cell_(existing, 'payload_hash') !== payloadHash) {
+      throwApiError_('IDEMPOTENCY_CONFLICT', 'Этот идентификатор mutation уже использован с другими данными', false);
+    }
+    return parseJson_(cell_(existing, 'response_json'), null);
+  }
+  var result = handler();
+  appendByHeaders_('mutation_requests', {
+    request_id: requestId,
+    action: action,
+    payload_hash: payloadHash,
+    response_json: JSON.stringify(result),
+    created_at: new Date().toISOString()
+  });
+  return result;
+}
+
+function hashPayload_(payload) {
+  var bytes = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    canonicalJson_(payload),
+    Utilities.Charset.UTF_8
+  );
+  return bytes.map(function (value) {
+    var unsigned = value < 0 ? value + 256 : value;
+    return ('0' + unsigned.toString(16)).slice(-2);
+  }).join('');
+}
+
+function canonicalJson_(value) {
+  if (Array.isArray(value)) return '[' + value.map(canonicalJson_).join(',') + ']';
+  if (value && typeof value === 'object') {
+    return '{' + Object.keys(value).sort().map(function (key) {
+      return JSON.stringify(key) + ':' + canonicalJson_(value[key]);
+    }).join(',') + '}';
+  }
+  return JSON.stringify(value);
 }
 
 function doGet() {
@@ -167,8 +220,12 @@ function readAppData_() {
 }
 
 function clearAppDataCache_() {
-  CacheService.getScriptCache().remove(APP_DATA_CACHE_KEY);
-  console.log('[FamilyMenu] getAppData cache cleared');
+  try {
+    CacheService.getScriptCache().remove(APP_DATA_CACHE_KEY);
+    console.log('[FamilyMenu] getAppData cache cleared');
+  } catch (err) {
+    console.warn('[FamilyMenu] getAppData cache clear skipped');
+  }
 }
 
 function readDishes_() {
@@ -807,13 +864,35 @@ function replaceRowsByKey_(sheetName, keyHeader, keyValue, replacementRows) {
   var keyIndex = headers.indexOf(keyHeader);
   if (keyIndex < 0) throwUserError_('Missing key column: ' + keyHeader);
   var currentValues = sheet.getDataRange().getValues();
-  var kept = currentValues.slice(1).filter(function (row) {
-    return trim_(row[keyIndex]) !== trim_(keyValue);
-  });
+  var secondaryKey = headers.indexOf('product_id') >= 0 ? 'product_id' : '';
+  var existingBySecondaryKey = {};
+  if (secondaryKey) {
+    var secondaryIndex = headers.indexOf(secondaryKey);
+    currentValues.slice(1).forEach(function (row) {
+      if (trim_(row[keyIndex]) === trim_(keyValue)) existingBySecondaryKey[trim_(row[secondaryIndex])] = row;
+    });
+  }
   var replacements = (replacementRows || []).map(function (row) {
-    return headers.map(function (header) { return row[header] === undefined ? '' : row[header]; });
+    var existingRow = secondaryKey ? existingBySecondaryKey[trim_(row[secondaryKey])] : null;
+    return headers.map(function (header, index) {
+      if (row[header] !== undefined) return row[header];
+      return existingRow ? existingRow[index] : '';
+    });
   });
-  var nextValues = [headers].concat(kept, replacements);
+  var nextRows = [];
+  var inserted = false;
+  currentValues.slice(1).forEach(function (row) {
+    if (trim_(row[keyIndex]) === trim_(keyValue)) {
+      if (!inserted) {
+        nextRows = nextRows.concat(replacements);
+        inserted = true;
+      }
+      return;
+    }
+    nextRows.push(row);
+  });
+  if (!inserted) nextRows = nextRows.concat(replacements);
+  var nextValues = [headers].concat(nextRows);
   sheet.clearContents();
   sheet.getRange(1, 1, nextValues.length, headers.length).setValues(nextValues);
 }
@@ -828,7 +907,11 @@ function upsertByKey_(sheetName, keyHeader, keyValue, values) {
   for (var i = 1; i < rows.length; i++) {
     if (trim_(rows[i][keyIndex]) === trim_(keyValue)) rowIndex = i + 1;
   }
-  var row = headers.map(function (header) { return values[header] === undefined ? '' : values[header]; });
+  var existingRow = rowIndex > 0 ? rows[rowIndex - 1] : null;
+  var row = headers.map(function (header, index) {
+    if (values[header] !== undefined) return values[header];
+    return existingRow ? existingRow[index] : '';
+  });
   if (rowIndex > 0) sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
   else sheet.appendRow(row);
 }

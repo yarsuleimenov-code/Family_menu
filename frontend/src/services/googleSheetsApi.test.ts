@@ -37,6 +37,22 @@ describe('Google Sheets API transport', () => {
     await expect(callApi('getAppData')).rejects.toMatchObject({ name: 'ApiProtocolError' });
   });
 
+  it('rejects invalid JSON as a protocol error and keeps HTTP errors distinct', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('{invalid', { status: 200 }))
+      .mockResolvedValueOnce(new Response('unavailable', { status: 503 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { callApi } = await apiModule();
+    await expect(callApi('getAppData')).rejects.toMatchObject({ name: 'ApiProtocolError' });
+    await expect(callApi('getAppData')).rejects.toMatchObject({ name: 'ApiResponseError', code: 'HTTP_503' });
+  });
+
+  it('keeps a server TIMEOUT envelope distinct from a client-side deadline', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: false, error: { code: 'TIMEOUT', message: 'server deadline' } }), { status: 200 })));
+    const { callApi } = await apiModule();
+    await expect(callApi('getAppData')).rejects.toMatchObject({ name: 'ApiResponseError', code: 'TIMEOUT' });
+  });
+
   it('maps LOCK_TIMEOUT and API validation errors', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: false, error: { code: 'LOCK_TIMEOUT', message: 'busy', retryable: true } }), { status: 200 }))
@@ -56,6 +72,22 @@ describe('Google Sheets API transport', () => {
     const pending = expect(callApi('getAppData', undefined, { signal: caller.signal, timeoutMs: 1000 }))
       .rejects.toMatchObject({ name: 'AbortError' });
     caller.abort();
+    await pending;
+  });
+
+  it('keeps caller abort classification stable even after the timeout deadline', async () => {
+    vi.useFakeTimers();
+    const caller = new AbortController();
+    vi.stubGlobal('fetch', vi.fn((_url, init) => new Promise((_resolve, reject) => {
+      (init?.signal as AbortSignal).addEventListener('abort', () => {
+        globalThis.setTimeout(() => reject(new DOMException('caller abort', 'AbortError')), 20);
+      });
+    })));
+    const { callApi } = await apiModule();
+    const pending = expect(callApi('getAppData', undefined, { signal: caller.signal, timeoutMs: 10 }))
+      .rejects.toMatchObject({ name: 'AbortError' });
+    caller.abort();
+    await vi.advanceTimersByTimeAsync(30);
     await pending;
   });
 });

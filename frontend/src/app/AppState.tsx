@@ -9,7 +9,7 @@ import { api, isGoogleSheetsDataSource } from '../services/api';
 import { readAppDataCache, writeAppDataCache } from '../services/appDataCache';
 import { mockData } from '../data/mockData';
 import { ApiLockTimeoutError, ApiNetworkError, ApiResponseError, ApiTimeoutError } from '../services/apiErrors';
-import { createPendingWrite, markWriteAttempt, markWriteFailure, normalizePendingWrites, PendingWriteGuard, runWithSingleLockRetry } from '../services/pendingWrites';
+import { createPendingWrite, markWriteAttempt, markWriteFailure, markWriteSynced, normalizePendingWrites, PendingWriteGuard, runWithSingleLockRetry } from '../services/pendingWrites';
 import type { PendingWrite, WriteAction } from '../services/pendingWrites';
 
 type SyncStatusType = 'loading' | 'cached' | 'refreshing' | 'fresh' | 'error' | 'local';
@@ -96,6 +96,17 @@ function statusKeyFor(action: WriteAction, payload: unknown): string {
   if (action === 'saveCalendarPlan') return calendarPlanWriteKey((payload as CalendarPlanRow).date);
   if (action === 'saveShoppingSession') return shoppingSessionWriteKey((payload as ShoppingSession).sessionId);
   return `${action}:${JSON.stringify(payload)}`;
+}
+
+function operationKeyFor(action: WriteAction, payload: unknown): string {
+  if (action === 'saveSelectedDinner' || action === 'saveCalendarPlan') return `${action}:${(payload as { date: string }).date}`;
+  if (action === 'saveShoppingSession') {
+    const session = payload as ShoppingSession;
+    return `${action}:${session.dateFrom}:${session.dateTo}`;
+  }
+  if (action === 'createDish' || action === 'updateDish' || action === 'deactivateDish') return `dish:${(payload as { dishId: string }).dishId}`;
+  if (action === 'createBaseProduct' || action === 'updateBaseProduct' || action === 'deactivateBaseProduct') return `product:${(payload as { productId: string }).productId}`;
+  return action;
 }
 
 function applyPendingWritesToData(data: AppData, writes: PendingWrite[]): AppData {
@@ -217,6 +228,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     pendingWritesRef.current = pendingWrites;
+    writePendingWrites(pendingWrites);
   }, [pendingWrites]);
 
   const updatePendingWrites = useCallback((updater: (current: PendingWrite[]) => PendingWrite[]) => {
@@ -256,7 +268,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   const executeWrite = useCallback(async (action: WriteAction, payload: unknown, existing?: PendingWrite): Promise<boolean> => {
     const pending = existing ?? createPendingWrite(action, payload, statusKeyFor(action, payload));
-    if (pending.status === 'expired' || !writeGuardRef.current.begin(pending.id)) return false;
+    const operationKey = operationKeyFor(action, payload);
+    if (pending.status === 'expired' || !writeGuardRef.current.begin(pending.id, operationKey)) return false;
     let currentWrite = pending;
     updatePendingWrites((current) => [currentWrite, ...current.filter((write) => write.id !== currentWrite.id)]);
     try {
@@ -290,6 +303,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       }
 
       const updatedAt = new Date().toISOString();
+      currentWrite = markWriteSynced(currentWrite, new Date(updatedAt));
       const remainingWrites = pendingWritesRef.current.filter((write) => write.id !== currentWrite.id);
       updatePendingWrites(() => remainingWrites);
       setSaveStatuses((current) => ({
@@ -305,7 +319,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       });
       return true;
     } finally {
-      writeGuardRef.current.end(pending.id);
+      writeGuardRef.current.end(pending.id, operationKey);
     }
   }, [performApiWrite, updatePendingWrites]);
 

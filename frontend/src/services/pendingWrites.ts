@@ -8,6 +8,7 @@ export type WriteAction =
 export type PendingWriteStatus = 'in_flight' | 'failed' | 'outcome_unknown' | 'retryable_lock' | 'synced' | 'expired';
 
 export interface PendingWrite {
+  schemaVersion: 2;
   id: string;
   statusKey: string;
   action: WriteAction;
@@ -26,6 +27,7 @@ export const PENDING_WRITE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 export function createPendingWrite(action: WriteAction, payload: unknown, statusKey: string, now = new Date()): PendingWrite {
   return {
+    schemaVersion: 2,
     id: crypto.randomUUID(),
     statusKey,
     action,
@@ -45,8 +47,11 @@ export function normalizePendingWrites(value: unknown, now = new Date()): Pendin
     const createdAt = raw.createdAt || now.toISOString();
     const expiresAt = raw.expiresAt || new Date(new Date(createdAt).getTime() + PENDING_WRITE_MAX_AGE_MS).toISOString();
     const status = raw.status || 'failed';
+    const isLegacy = raw.schemaVersion !== 2;
     return {
       ...raw,
+      schemaVersion: 2,
+      id: isLegacy ? crypto.randomUUID() : raw.id,
       status: new Date(expiresAt).getTime() <= now.getTime() ? 'expired' : status === 'in_flight' ? 'failed' : status,
       createdAt,
       updatedAt: raw.updatedAt || createdAt,
@@ -73,6 +78,10 @@ export function markWriteFailure(write: PendingWrite, error: unknown, now = new 
   return { ...write, status: 'failed', updatedAt: now.toISOString(), errorCode, error: error instanceof Error ? error.message : 'Не удалось сохранить' };
 }
 
+export function markWriteSynced(write: PendingWrite, now = new Date()): PendingWrite {
+  return { ...write, status: 'synced', updatedAt: now.toISOString(), error: undefined, errorCode: undefined };
+}
+
 export function lockRetryDelay(random = Math.random): number {
   return 500 + Math.floor(random() * 1001);
 }
@@ -95,15 +104,18 @@ export async function runWithSingleLockRetry<T>(
 
 export class PendingWriteGuard {
   private readonly active = new Set<string>();
+  private readonly activeKeys = new Set<string>();
 
-  begin(id: string): boolean {
-    if (this.active.has(id)) return false;
+  begin(id: string, operationKey = id): boolean {
+    if (this.active.has(id) || this.activeKeys.has(operationKey)) return false;
     this.active.add(id);
+    this.activeKeys.add(operationKey);
     return true;
   }
 
-  end(id: string): void {
+  end(id: string, operationKey = id): void {
     this.active.delete(id);
+    this.activeKeys.delete(operationKey);
   }
 
   isActive(id: string): boolean {

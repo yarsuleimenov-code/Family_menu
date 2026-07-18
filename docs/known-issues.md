@@ -7,6 +7,7 @@
 - Timeout или сетевой обрыв после отправки mutation означает неизвестный серверный результат. Автоматический retry запрещён; запись остаётся `outcome_unknown` для осознанной ручной сверки/повторения с тем же UUID.
 - Реальную конкуренцию и поведение lock можно проверить только Apps Script integration smoke на отдельной тестовой таблице.
 - Multi-user authorization остаётся вне scope.
+- `mutation_requests` хранит idempotency keys в Google Sheet. Запись бизнес-данных и ledger не являются общей транзакцией: редкий сбой между ними остаётся residual risk и должен проверяться integration smoke.
 
 ## P1 — конкурентная запись может повредить данные блюда (смягчено, требует integration smoke)
 

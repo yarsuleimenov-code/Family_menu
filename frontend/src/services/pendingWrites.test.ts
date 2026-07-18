@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiLockTimeoutError, ApiNetworkError, ApiTimeoutError } from './apiErrors';
 import {
-  createPendingWrite, markWriteAttempt, normalizePendingWrites, PendingWriteGuard, runWithSingleLockRetry,
+  createPendingWrite, markWriteAttempt, markWriteFailure, markWriteSynced, normalizePendingWrites, PendingWriteGuard, runWithSingleLockRetry,
 } from './pendingWrites';
 
 describe('pending writes', () => {
@@ -25,6 +25,33 @@ describe('pending writes', () => {
     expect(guard.begin('id')).toBe(false);
     guard.end('id');
     expect(guard.begin('id')).toBe(true);
+  });
+
+  it('prevents two UUIDs for the same logical operation from running in parallel', () => {
+    const guard = new PendingWriteGuard();
+    expect(guard.begin('id-1', 'same-date')).toBe(true);
+    expect(guard.begin('id-2', 'same-date')).toBe(false);
+    expect(guard.begin('id-2', 'other-date')).toBe(true);
+    guard.end('id-1', 'same-date');
+    expect(guard.begin('id-3', 'same-date')).toBe(true);
+  });
+
+  it('covers failure, unknown, lock and synced state transitions', () => {
+    const now = new Date('2026-01-02');
+    const write = createPendingWrite('updateSettings', {}, 'settings', new Date('2026-01-01'));
+    expect(markWriteFailure(write, new Error('bad'), now).status).toBe('failed');
+    expect(markWriteFailure(write, new ApiTimeoutError('', true), now).status).toBe('outcome_unknown');
+    expect(markWriteFailure(write, new ApiLockTimeoutError(), now).status).toBe('retryable_lock');
+    expect(markWriteSynced(write, now).status).toBe('synced');
+  });
+
+  it('migrates the legacy localStorage shape to a persisted UUID-ready schema', () => {
+    vi.stubGlobal('crypto', { randomUUID: () => 'migrated-uuid' });
+    const legacy = { id: 'updateSettings:{old}', statusKey: 'settings', action: 'updateSettings', payload: {}, createdAt: '2026-01-01T00:00:00.000Z' };
+    const migrated = normalizePendingWrites([legacy], new Date('2026-01-02'));
+    expect(migrated[0]).toMatchObject({ id: 'migrated-uuid', schemaVersion: 2, status: 'failed' });
+    expect(normalizePendingWrites(JSON.parse(JSON.stringify(migrated)), new Date('2026-01-03'))[0].id).toBe('migrated-uuid');
+    vi.unstubAllGlobals();
   });
 
   it('retries LOCK_TIMEOUT exactly once with jitter', async () => {

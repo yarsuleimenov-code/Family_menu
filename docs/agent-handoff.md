@@ -9,6 +9,8 @@
 - Записи старше 30 дней становятся `expired`, остаются видимыми и удаляются только вручную.
 - `LockService` не обеспечивает транзакцию между листами; реальную конкуренцию проверить на отдельной тестовой Google Sheet по manual plan из итогового PR.
 - Пользовательский `scripts/update_live_recipe_notes.mjs` остаётся untracked и не должен включаться в commits.
+- Senior review PR #4 устранил конфликт UUID/payload через лист `mutation_requests`; одинаковый request ID с другим action/payload возвращает `IDEMPOTENCY_CONFLICT`.
+- Перед integration smoke проверить редкий разрыв между успешной бизнес-записью и записью idempotency ledger: Google Sheets не поддерживает общую транзакцию для этих операций.
 
 ## Точка отсчёта
 

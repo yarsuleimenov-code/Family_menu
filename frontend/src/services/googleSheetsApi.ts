@@ -51,12 +51,18 @@ export async function callApi<T>(action: ApiAction, payload?: unknown, options: 
   if (!endpoint) throw new Error('Apps Script endpoint не настроен');
   const controller = new AbortController();
   const timeoutMs = options.timeoutMs ?? API_TIMEOUT_MS;
-  let timedOut = false;
+  let abortSource: 'timeout' | 'caller' | undefined;
   const timer = globalThis.setTimeout(() => {
-    timedOut = true;
+    if (abortSource) return;
+    abortSource = 'timeout';
     controller.abort();
   }, timeoutMs);
-  const abortFromCaller = () => controller.abort();
+  const abortFromCaller = () => {
+    if (abortSource) return;
+    abortSource = 'caller';
+    globalThis.clearTimeout(timer);
+    controller.abort();
+  };
   options.signal?.addEventListener('abort', abortFromCaller, { once: true });
   const isMutation = mutationActions.has(action);
   try {
@@ -85,8 +91,8 @@ export async function callApi<T>(action: ApiAction, payload?: unknown, options: 
     return envelope.data as T;
   } catch (error) {
     if (error instanceof ApiResponseError || error instanceof ApiProtocolError) throw error;
-    if (timedOut) throw new ApiTimeoutError('Сервер не ответил вовремя', isMutation);
-    if (options.signal?.aborted) throw error;
+    if (abortSource === 'caller') throw error;
+    if (abortSource === 'timeout') throw new ApiTimeoutError('Сервер не ответил вовремя', isMutation);
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw new ApiNetworkError('Нет связи с сервером', isMutation);
   } finally {

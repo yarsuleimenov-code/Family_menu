@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Copy, Plus, Printer, Save, Trash2 } from 'lucide-react';
 import { ShoppingItem } from '../../components/ShoppingItem/ShoppingItem';
 import { shoppingSessionWriteKey, useAppState } from '../../app/AppState';
@@ -29,6 +29,8 @@ export function ShoppingPage() {
   const [hideBought, setHideBought] = useState(false);
   const [statusByKey, setStatusByKey] = useState<Record<string, ShoppingItemStatus>>(() => readStorage(STATUS_KEY, {}));
   const [message, setMessage] = useState('');
+  const [sessionSaving, setSessionSaving] = useState(false);
+  const sessionSavingRef = useRef(false);
   const [generatedAt, setGeneratedAt] = useState<string>();
   const [lastSessionId, setLastSessionId] = useState<string>();
   const [manualFormOpen, setManualFormOpen] = useState(false);
@@ -72,6 +74,9 @@ export function ShoppingPage() {
   };
 
   const saveSession = async () => {
+    if (sessionSavingRef.current) return;
+    sessionSavingRef.current = true;
+    setSessionSaving(true);
     const sessionId = `S-${Date.now()}`;
     const session: ShoppingSession = {
       sessionId,
@@ -84,8 +89,13 @@ export function ShoppingPage() {
       estimatedTotal: total,
     };
     setLastSessionId(sessionId);
-    const saved = await saveShoppingSession(session);
-    setMessage(saved ? 'Список сохранён' : 'Список сохранён локально. Google Sheets не ответил.');
+    try {
+      const saved = await saveShoppingSession(session);
+      setMessage(saved ? 'Список сохранён' : 'Список сохранён локально. Google Sheets не ответил.');
+    } finally {
+      sessionSavingRef.current = false;
+      setSessionSaving(false);
+    }
   };
 
   const clearMarks = () => {
@@ -207,7 +217,7 @@ export function ShoppingPage() {
       <div className="toolbar">
         <button className="primary" type="button" onClick={generateList}>Обновить список</button>
         <button type="button" onClick={() => window.print()}><Printer size={18} /> Печать</button>
-        <button type="button" onClick={() => void saveSession()}><Save size={18} /> Сохранить</button>
+        <button type="button" disabled={sessionSaving} onClick={() => void saveSession()}><Save size={18} /> {sessionSaving ? 'Сохраняем...' : 'Сохранить'}</button>
         <button type="button" onClick={markAll}>Отметить всё</button>
       </div>
 

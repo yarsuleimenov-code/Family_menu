@@ -11,6 +11,26 @@ function load(overrides = {}) {
   return context;
 }
 
+function createSheet(headers, rows) {
+  let values = [headers, ...rows];
+  return {
+    getLastColumn: () => headers.length,
+    getDataRange: () => ({ getValues: () => values.map((row) => [...row]) }),
+    getRange: (row, column, rowCount, columnCount) => ({
+      getValues: () => values.slice(row - 1, row - 1 + rowCount).map((item) => item.slice(column - 1, column - 1 + columnCount)),
+      setValues: (next) => {
+        next.forEach((nextRow, rowOffset) => {
+          const targetRow = row - 1 + rowOffset;
+          if (!values[targetRow]) values[targetRow] = [];
+          nextRow.forEach((cell, columnOffset) => { values[targetRow][column - 1 + columnOffset] = cell; });
+        });
+      },
+    }),
+    clearContents: () => { values = []; },
+    values: () => values,
+  };
+}
+
 describe('Apps Script mutation safety', () => {
   it('releases the lock on success and exception', () => {
     const lock = { tryLock: vi.fn(() => true), releaseLock: vi.fn() };
@@ -45,6 +65,71 @@ describe('Apps Script mutation safety', () => {
     expect(ctx.clearAppDataCache_).toHaveBeenCalledTimes(1);
     expect(() => ctx.runMutation_(() => { throw new Error('failed'); })).toThrow();
     expect(ctx.clearAppDataCache_).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fail a successful mutation when cache cleanup fails', () => {
+    const ctx = load({ CacheService: { getScriptCache: () => ({ remove: () => { throw new Error('cache unavailable'); } }) } });
+    expect(() => ctx.clearAppDataCache_()).not.toThrow();
+  });
+
+  it('keeps read endpoints free from sheet creation and writes', () => {
+    const insertSheet = vi.fn();
+    const spreadsheet = { getSheetByName: vi.fn(() => null), insertSheet };
+    const ctx = load({
+      SpreadsheetApp: { getActive: () => spreadsheet },
+      CacheService: { getScriptCache: () => ({ get: () => null, put: vi.fn() }) },
+    });
+    expect(ctx.getDishes()).toEqual([]);
+    expect(ctx.getCalendarPlan()).toEqual([]);
+    expect(ctx.getBaseProducts()).toEqual([]);
+    expect(ctx.getRecentSelections(10)).toEqual([]);
+    expect(ctx.getSettings()).toMatchObject({ dataSource: 'googleSheets' });
+    expect(ctx.getAppData()).toMatchObject({ dishes: [], baseProducts: [] });
+    expect(insertSheet).not.toHaveBeenCalled();
+  });
+
+  it('replays the stored result and rejects a UUID reused with another payload', () => {
+    const ctx = load();
+    const ledger = [];
+    ctx.hashPayload_ = (payload) => JSON.stringify(payload);
+    ctx.readRows_ = () => ledger;
+    ctx.appendByHeaders_ = (_sheet, row) => ledger.push(row);
+    const handler = vi.fn(() => ({ id: 'logical-result' }));
+    expect(ctx.executeIdempotentMutation_('createDish', 'uuid', { name: 'A' }, handler)).toEqual({ id: 'logical-result' });
+    expect(ctx.executeIdempotentMutation_('createDish', 'uuid', { name: 'A' }, handler)).toEqual({ id: 'logical-result' });
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(ctx.safeRun_(() => ctx.executeIdempotentMutation_('createDish', 'uuid', { name: 'B' }, handler)))
+      .toMatchObject({ ok: false, error: { code: 'IDEMPOTENCY_CONFLICT' } });
+  });
+
+  it('preserves neighboring rows and the original insertion position during replacement', () => {
+    const sheet = createSheet(['dish_id', 'product_id', 'product_name', 'future_column'], [
+      ['neighbor-a', 'a', 'A', 'keep-a'],
+      ['dish', 'p1', 'old-1', 'future-1'],
+      ['dish', 'p2', 'old-2', 'future-2'],
+      ['neighbor-b', 'b', 'B', 'keep-b'],
+    ]);
+    const ctx = load();
+    ctx.ensureSheet_ = () => sheet;
+    ctx.replaceRowsByKey_('dish_ingredients', 'dish_id', 'dish', [
+      { dish_id: 'dish', product_id: 'p1', product_name: 'new-1' },
+      { dish_id: 'dish', product_id: 'p2', product_name: 'new-2' },
+    ]);
+    expect(sheet.values()).toEqual([
+      ['dish_id', 'product_id', 'product_name', 'future_column'],
+      ['neighbor-a', 'a', 'A', 'keep-a'],
+      ['dish', 'p1', 'new-1', 'future-1'],
+      ['dish', 'p2', 'new-2', 'future-2'],
+      ['neighbor-b', 'b', 'B', 'keep-b'],
+    ]);
+  });
+
+  it('preserves later-added columns when updating an existing keyed row', () => {
+    const sheet = createSheet(['dish_id', 'dish_name', 'future_column'], [['dish', 'Old', 'keep-me']]);
+    const ctx = load();
+    ctx.ensureSheet_ = () => sheet;
+    ctx.upsertByKey_('dishes', 'dish_id', 'dish', { dish_id: 'dish', dish_name: 'New' });
+    expect(sheet.values()[1]).toEqual(['dish', 'New', 'keep-me']);
   });
 
   it('uses stable idempotency keys for selected dinner and shopping session', () => {
