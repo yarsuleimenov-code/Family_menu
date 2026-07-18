@@ -176,7 +176,7 @@ export function RepeatWeekDialog({
         <footer className="repeat-week-dialog__footer">
           <span>{actionableCount} дней будут изменены</span>
           {phase === 'complete' ? <button type="button" className="primary" onClick={() => onOpenPlan(targetWeek)}>Открыть целевую неделю</button> : (
-            <button type="button" className={mode === 'replace_conflicts' ? 'danger-action' : 'primary'} disabled={!actionableCount || phase === 'checking' || phase === 'saving'} onClick={() => void execute()}>
+            <button type="button" className={mode === 'replace_conflicts' ? 'danger-action' : 'primary'} disabled={!actionableCount || phase === 'checking' || phase === 'saving' || (mode === 'replace_conflicts' && conflictCount > 0 && !replaceConfirmed)} onClick={() => void execute()}>
               {phase === 'checking' ? 'Проверяем...' : phase === 'saving' ? 'Сохраняем по дням...' : mode === 'replace_conflicts' ? 'Заменить выбранные дни' : 'Добавить в пустые дни'}
             </button>
           )}
