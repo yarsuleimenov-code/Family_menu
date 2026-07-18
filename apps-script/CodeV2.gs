@@ -615,10 +615,12 @@ function cleanupSeedRows(payload) {
   }, dryRun);
 
   summary.duplicateSelectedDinners = dedupeRowsByKey_('selected_dinners', 'id', dryRun);
+  summary.duplicateShoppingSessions = dedupeRowsByKey_('shopping_sessions', 'session_id', dryRun);
   Object.keys(summary.qaRows).forEach(function (name) {
     summary.deletedRows += summary.qaRows[name];
   });
   summary.deletedRows += summary.duplicateSelectedDinners;
+  summary.deletedRows += summary.duplicateShoppingSessions;
   return summary;
 }
 
