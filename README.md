@@ -34,7 +34,7 @@ npm run build:pages
 
 В настройках GitHub Pages выберите:
 
-- Branch: `feature/react-family-menu`
+- Branch: `main`
 - Folder: `/docs`
 
 `docs/index.html` является стартовой страницей приложения. `docs/404.html` дублирует `index.html`, чтобы прямые ссылки React Router вроде `/Family_menu/plan` открывались корректно.
@@ -177,6 +177,8 @@ node scripts/cleanup_family_menu_live.mjs
 ```
 
 Актуальный статус проекта фиксируется в `docs/PROJECT_STATUS.md`, подробный QA - в `docs/QA_REPORT.md`, аудит данных - в `docs/DATA_QUALITY_AUDIT.md`.
+
+Контекст для продолжения разработки: `docs/project-context.md`, `docs/business-rules.md`, `docs/testing.md`, `docs/deployment.md`, `docs/known-issues.md` и `docs/agent-handoff.md`.
 
 Для тестового использования семьёй используйте короткую инструкцию: `docs/FAMILY_TEST_GUIDE.md`.
 
